@@ -110,8 +110,18 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
 
             let p = Pkg::from_str(pkg.borrow()).unwrap();
             let p_dir = p.config_path(&self.elm_home, &self.elm_version);
-            // [x] List existing versions of every potential package
-            let versions: Vec<SemVer> = std::fs::read_dir(&p_dir)?
+            let sub_dirs = match std::fs::read_dir(&p_dir) {
+                Ok(s) => s,
+                Err(_) => {
+                    // The directory does not exist so probably
+                    // no version of this package have ever been installed.
+                    initial_potential_packages.push((pkg, range));
+                    continue;
+                }
+            };
+
+            // List installed versions
+            let versions: Vec<SemVer> = sub_dirs
                 .filter_map(|f| f.ok())
                 // only keep directories
                 .filter(|entry| entry.file_type().map(|f| f.is_dir()).unwrap_or(false))
@@ -120,7 +130,8 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
                 // convert into a version
                 .filter_map(|s| SemVer::from_str(&s).ok())
                 .collect();
-            // [x] deserialize and register those versions into the cache
+
+            // Deserialize and register those versions into the cache
             for v in versions.into_iter() {
                 let pkg_version = PkgVersion {
                     author_pkg: p.clone(),
