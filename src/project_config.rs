@@ -1,6 +1,7 @@
 //! Module dealing with project configuration in the elm.json file.
 
 use crate::constraint::Constraint;
+use pubgrub::range::Range;
 use pubgrub::version::SemanticVersion as SemVer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap as Map;
@@ -50,4 +51,12 @@ pub struct PackageConfig {
 pub enum ExposedModules {
     NoCategory(Vec<String>),
     WithCategories(Map<String, Vec<String>>),
+}
+
+impl PackageConfig {
+    pub fn dependencies_iter(&self) -> impl Iterator<Item = (&String, &Range<SemVer>)> {
+        self.dependencies
+            .iter()
+            .map(|(p, constraint)| (p, &constraint.0))
+    }
 }
