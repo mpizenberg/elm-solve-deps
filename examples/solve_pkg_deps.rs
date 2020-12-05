@@ -15,15 +15,15 @@ fn main() {
     let pkg_version = PkgVersion::from_str(&arg).unwrap();
     let author = &pkg_version.author_pkg.author;
     let pkg = &pkg_version.author_pkg.pkg;
-    // let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-    let deps_provider = ElmPackageProviderOnline::new(
+    let offline_deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
+    let online_deps_provider = ElmPackageProviderOnline::new(
         elm_home(),
         "0.19.1",
         "https://package.elm-lang.org",
         http_fetch,
     );
     match resolve(
-        &deps_provider,
+        &offline_deps_provider,
         format!("{}/{}", author, pkg),
         pkg_version.version,
     ) {
