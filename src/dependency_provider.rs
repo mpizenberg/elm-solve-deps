@@ -67,10 +67,16 @@ use pubgrub::solver::{Dependencies, DependencyProvider, OfflineDependencyProvide
 use pubgrub::version::SemanticVersion as SemVer;
 use std::borrow::Borrow;
 use std::cell::RefCell;
+use std::collections::BTreeSet;
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::pkg_version::{Pkg, PkgVersion};
+use crate::pkg_version::{Cache, Pkg, PkgVersion};
+
+// #############################################################################
+// OFFLINE #####################################################################
+// #############################################################################
 
 pub struct ElmPackageProviderOffline {
     elm_home: PathBuf,
@@ -162,5 +168,92 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
         version: &SemVer,
     ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
         self.cache.borrow().get_dependencies(package, version)
+    }
+}
+
+// #############################################################################
+// ONLINE ######################################################################
+// #############################################################################
+
+pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>>> {
+    elm_home: PathBuf,
+    elm_version: String,
+    remote: String,
+    versions_cache: Cache,
+    http_fetch: F,
+}
+
+impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> {
+    /// At the beginning we make one call to
+    /// https://package.elm-lang.org/packages/since/...
+    /// to update our list of existing packages.
+    pub fn new<PB: Into<PathBuf>, S: ToString>(
+        elm_home: PB,
+        elm_version: S,
+        remote: S,
+        http_fetch: F,
+    ) -> Result<Self, Box<dyn Error>> {
+        let elm_home = elm_home.into();
+        let mut versions_cache = Cache::load(&elm_home).unwrap_or_else(|_| Cache::new());
+        let remote = remote.to_string();
+        versions_cache.update(&remote, &http_fetch)?;
+        Ok(ElmPackageProviderOnline {
+            elm_home,
+            elm_version: elm_version.to_string(),
+            remote,
+            versions_cache,
+            http_fetch,
+        })
+    }
+}
+
+impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, SemVer>
+    for ElmPackageProviderOnline<F>
+{
+    /// For choose_package_version, we simply use the pubgrub helper function:
+    /// choose_package_with_fewest_versions
+    fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
+        &self,
+        potential_packages: impl Iterator<Item = (T, U)>,
+    ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
+        let empty_tree = BTreeSet::new();
+        let list_available_versions = |package: &String| {
+            let versions = self
+                .versions_cache
+                .cache
+                .get(&Pkg::from_str(package).unwrap())
+                .unwrap_or_else(|| &empty_tree);
+            // List versions with latest first
+            versions.iter().rev().cloned()
+        };
+        Ok(pubgrub::solver::choose_package_with_fewest_versions(
+            list_available_versions,
+            potential_packages,
+        ))
+    }
+
+    /// For get_dependencies, we check if those have been cached already,
+    /// otherwise we check if the package is installed on the disk and read there,
+    /// otherwise we ask for dependencies on the network.
+    fn get_dependencies(
+        &self,
+        package: &String,
+        version: &SemVer,
+    ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
+        let author_pkg = Pkg::from_str(&package).unwrap();
+        let pkg_version = PkgVersion {
+            author_pkg,
+            version: version.clone(),
+        };
+        let pkg_config = pkg_version
+            .load_from_cache(&self.elm_home)
+            .or_else(|_| pkg_version.load_config(&self.elm_home, &self.elm_version))
+            .or_else(|_| {
+                pkg_version.fetch_config(&self.elm_home, &self.remote, &self.http_fetch)
+            })?;
+        let deps_iter = pkg_config
+            .dependencies_iter()
+            .map(|(p, r)| (p.clone(), r.clone()));
+        Ok(Dependencies::Known(deps_iter.collect()))
     }
 }

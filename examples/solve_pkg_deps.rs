@@ -1,9 +1,13 @@
 use dirs;
 use pubgrub::solver::resolve;
+use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
+use ureq;
 
-use pubgrub_dependency_provider_elm::dependency_provider::ElmPackageProviderOffline;
+use pubgrub_dependency_provider_elm::dependency_provider::{
+    ElmPackageProviderOffline, ElmPackageProviderOnline,
+};
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
 
 fn main() {
@@ -11,7 +15,13 @@ fn main() {
     let pkg_version = PkgVersion::from_str(&arg).unwrap();
     let author = &pkg_version.author_pkg.author;
     let pkg = &pkg_version.author_pkg.pkg;
-    let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
+    // let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
+    let deps_provider = ElmPackageProviderOnline::new(
+        elm_home(),
+        "0.19.1",
+        "https://package.elm-lang.org",
+        http_fetch,
+    );
     match resolve(
         &deps_provider,
         format!("{}/{}", author, pkg),
@@ -48,4 +58,12 @@ fn default_elm_home() -> PathBuf {
     dirs::data_dir()
         .expect("Unknown data directory")
         .join("elm")
+}
+
+fn http_fetch(url: &str) -> Result<String, Box<dyn Error>> {
+    ureq::get(url)
+        .timeout_connect(10_000)
+        .call()
+        .into_string()
+        .map_err(|e| e.into())
 }

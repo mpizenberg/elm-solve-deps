@@ -1,21 +1,128 @@
 use pubgrub::version::{SemanticVersion as SemVer, VersionParseError};
+use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::project_config::PackageConfig;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Cache {
+    pub cache: BTreeMap<Pkg, BTreeSet<SemVer>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PkgVersion {
     pub author_pkg: Pkg,
     pub version: SemVer,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Pkg {
     pub author: String,
     pub pkg: String,
+}
+
+impl Cache {
+    /// Initialize an empty cache.
+    pub fn new() -> Self {
+        Self {
+            cache: BTreeMap::new(),
+        }
+    }
+
+    /// Load the cache from its default location.
+    pub fn load<P: AsRef<Path>>(elm_home: P) -> Result<Self, Box<dyn Error>> {
+        eprintln!(
+            "Loading versions cache from {}",
+            Self::file_path(&elm_home).display()
+        );
+        let s = std::fs::read_to_string(Self::file_path(elm_home))?;
+        serde_json::from_str(&s).map_err(|e| e.into())
+    }
+
+    /// Save the cache to its default location.
+    pub fn save<P: AsRef<Path>>(&self, elm_home: P) -> Result<(), Box<dyn Error>> {
+        eprintln!(
+            "Saving versions cache into {}",
+            Self::file_path(&elm_home).display()
+        );
+        let s = serde_json::to_string(self)?;
+        std::fs::write(Self::file_path(elm_home), &s).map_err(|e| e.into())
+    }
+
+    /// Path the to file used to store a cache of all existing versions.
+    /// ~/.elm/pubgrub/versions_cache.json
+    pub fn file_path<P: AsRef<Path>>(elm_home: P) -> PathBuf {
+        Pkg::pubgrub_cache_dir(elm_home).join("versions_cache.json")
+    }
+
+    /// Fetch packages online.
+    pub fn update(
+        &mut self,
+        remote_base_url: &str,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        if self.cache.is_empty() {
+            *self = Self::from_remote_all_pkg(remote_base_url, http_fetch)?;
+            Ok(())
+        } else {
+            let versions_count: usize = self.cache.values().map(|v| v.len()).sum();
+            let url = format!(
+                "{}/all-packages/since/{}",
+                remote_base_url,
+                versions_count.max(1) - 1
+            );
+            eprintln!("Request to {}", url);
+            let pkgs_str = http_fetch(&url)?;
+            let mut lines = pkgs_str.lines();
+            // Check that the first package in the list was already in cache
+            let first_pkg = PkgVersion::from_str(lines.next().unwrap()).unwrap();
+            if self
+                .cache
+                .get(&first_pkg.author_pkg)
+                .and_then(|pkg_versions| pkg_versions.get(&first_pkg.version))
+                .is_some()
+            {
+                // Continue as normal: register every line as a package version
+                for line in lines {
+                    let PkgVersion {
+                        author_pkg,
+                        version,
+                    } = PkgVersion::from_str(line).unwrap();
+                    let pkg_entry = self.cache.entry(author_pkg).or_default();
+                    pkg_entry.insert(version);
+                }
+            } else {
+                // Reload from scratch since it means a package was deleted from the registry
+                *self = Self::from_remote_all_pkg(remote_base_url, http_fetch)?;
+            }
+            Ok(())
+        }
+    }
+
+    /// curl -L https://package.elm-lang.org/all-packages | jq .
+    fn from_remote_all_pkg(
+        remote_base_url: &str,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let url = format!("{}/all-packages", remote_base_url);
+        eprintln!("Request to {}", url);
+        let all_pkg_str = http_fetch(&url)?;
+        let all_pkg: BTreeMap<String, Vec<String>> = serde_json::from_str(&all_pkg_str)?;
+        let cache = all_pkg
+            .iter()
+            .map(|(p, vs)| {
+                let versions: BTreeSet<_> =
+                    vs.iter().map(|v| SemVer::from_str(v).unwrap()).collect();
+                (Pkg::from_str(p).unwrap(), versions)
+            })
+            .collect();
+        Ok(Self { cache })
+    }
 }
 
 // Public PkgVersion methods.
@@ -74,7 +181,7 @@ impl PkgVersion {
 
     fn pubgrub_cache_dir<P: AsRef<Path>>(&self, elm_home: P) -> PathBuf {
         self.author_pkg
-            .pubgrub_cache_dir(elm_home)
+            .pubgrub_cache_dir_json(elm_home)
             .join(&self.version.to_string())
     }
 
@@ -89,7 +196,7 @@ impl PkgVersion {
 // Public Pkg methods.
 impl Pkg {
     pub fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
-        self.packages_dir(elm_home, elm_version)
+        Self::packages_dir(elm_home, elm_version)
             .join(&self.author)
             .join(&self.pkg)
     }
@@ -101,16 +208,18 @@ impl Pkg {
         format!("{}/packages/{}/{}", remote_base_url, self.author, self.pkg)
     }
 
-    fn pubgrub_cache_dir<P: AsRef<Path>>(&self, elm_home: P) -> PathBuf {
-        elm_home
-            .as_ref()
-            .join("pubgrub")
+    fn pubgrub_cache_dir_json<P: AsRef<Path>>(&self, elm_home: P) -> PathBuf {
+        Self::pubgrub_cache_dir(elm_home)
             .join("elm_json_cache")
             .join(&self.author)
             .join(&self.pkg)
     }
 
-    fn packages_dir<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
+    fn pubgrub_cache_dir<P: AsRef<Path>>(elm_home: P) -> PathBuf {
+        elm_home.as_ref().join("pubgrub")
+    }
+
+    fn packages_dir<P: AsRef<Path>>(elm_home: P, elm_version: &str) -> PathBuf {
         elm_home.as_ref().join(elm_version).join("packages")
     }
 }
