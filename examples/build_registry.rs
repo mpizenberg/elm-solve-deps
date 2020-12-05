@@ -12,13 +12,20 @@ fn main() {
     let raw: Vec<String> = serde_json::from_str(&s).expect("woops serde");
     let pkg_versions: Vec<PkgVersion> =
         raw.iter().map(|s| FromStr::from_str(&s).unwrap()).collect();
+    let http_fetch = |url: &str| {
+        ureq::get(url)
+            .timeout_connect(10_000)
+            .call()
+            .into_string()
+            .map_err(|e| e.into())
+    };
     let configs: Vec<PackageConfig> = pkg_versions
         .into_iter()
         // .skip(3772)
         // .take(2)
         .map(|p| {
             p.load_from_cache("download")
-                .or_else(|_| p.fetch_config("download", "https://package.elm-lang.org"))
+                .or_else(|_| p.fetch_config("download", "https://package.elm-lang.org", http_fetch))
                 .unwrap()
         })
         .collect();

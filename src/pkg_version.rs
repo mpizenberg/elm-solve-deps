@@ -3,7 +3,6 @@ use serde_json;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use ureq;
 
 use crate::project_config::PackageConfig;
 
@@ -25,12 +24,10 @@ impl PkgVersion {
         &self,
         elm_home: P,
         remote_base_url: &str,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
     ) -> Result<PackageConfig, Box<dyn Error>> {
         eprintln!("Fetching {}", self.to_url(remote_base_url));
-        let response = ureq::get(&self.to_url(remote_base_url))
-            .timeout_connect(10_000)
-            .call();
-        let config_str = response.into_string()?;
+        let config_str = http_fetch(&self.to_url(remote_base_url))?;
         std::fs::create_dir_all(self.pubgrub_cache_dir(&elm_home))?;
         std::fs::write(self.pubgrub_cache_file(&elm_home), &config_str)?;
         let config = serde_json::from_str(&config_str)?;
