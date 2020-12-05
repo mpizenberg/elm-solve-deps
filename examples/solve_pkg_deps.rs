@@ -6,7 +6,6 @@ use std::str::FromStr;
 use pubgrub_dependency_provider_elm::dependency_provider::ElmPackageProviderOffline;
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
 
-/// Read the history of all packages and fetch all their elm.json files.
 fn main() {
     let arg = std::env::args().skip(1).next().unwrap();
     let pkg_version = PkgVersion::from_str(&arg).unwrap();
