@@ -6,7 +6,7 @@ use std::str::FromStr;
 use ureq;
 
 use pubgrub_dependency_provider_elm::dependency_provider::{
-    ElmPackageProviderOffline, ElmPackageProviderOnline,
+    ElmPackageProviderOffline, ElmPackageProviderOnline, VersionStrategy,
 };
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
 
@@ -21,6 +21,7 @@ fn main() {
         "0.19.1",
         "https://package.elm-lang.org",
         http_fetch,
+        VersionStrategy::Oldest,
     )
     .expect("Error initializing the online dependency provider");
     match resolve(

@@ -181,6 +181,12 @@ pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>
     remote: String,
     versions_cache: Cache,
     http_fetch: F,
+    strategy: VersionStrategy,
+}
+
+pub enum VersionStrategy {
+    Newest,
+    Oldest,
 }
 
 impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> {
@@ -192,6 +198,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
         elm_version: S,
         remote: S,
         http_fetch: F,
+        strategy: VersionStrategy,
     ) -> Result<Self, Box<dyn Error>> {
         let elm_home = elm_home.into();
         let mut versions_cache = Cache::load(&elm_home).unwrap_or_else(|_| Cache::new());
@@ -203,6 +210,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
             remote,
             versions_cache,
             http_fetch,
+            strategy,
         })
     }
 
@@ -228,8 +236,11 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
                 .cache
                 .get(package)
                 .unwrap_or_else(|| &empty_tree);
-            // List versions with latest first
-            versions.iter().rev().cloned()
+            let iter: Box<dyn Iterator<Item = SemVer>> = match self.strategy {
+                VersionStrategy::Oldest => Box::new(versions.iter().cloned()),
+                VersionStrategy::Newest => Box::new(versions.iter().rev().cloned()),
+            };
+            iter
         };
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
             list_available_versions,
