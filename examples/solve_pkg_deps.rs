@@ -39,10 +39,7 @@ fn main() {
         Err(err) => eprintln!("{:?}", err),
     }
     // Save the versions cache
-    online_deps_provider
-        .versions_cache
-        .save(elm_home())
-        .unwrap();
+    online_deps_provider.save_cache().unwrap();
 }
 
 fn elm_home() -> PathBuf {

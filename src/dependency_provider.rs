@@ -179,7 +179,7 @@ pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>
     elm_home: PathBuf,
     elm_version: String,
     remote: String,
-    pub versions_cache: Cache,
+    versions_cache: Cache,
     http_fetch: F,
 }
 
@@ -204,6 +204,11 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
             versions_cache,
             http_fetch,
         })
+    }
+
+    /// Save the cache of existing versions.
+    pub fn save_cache(&self) -> Result<(), Box<dyn Error>> {
+        self.versions_cache.save(&self.elm_home)
     }
 }
 
