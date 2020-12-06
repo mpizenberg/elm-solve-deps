@@ -1,8 +1,9 @@
 use dirs;
-use pubgrub::solver::resolve;
-use std::error::Error;
+use pubgrub::solver::{resolve, DependencyProvider};
+use pubgrub::version::SemanticVersion as SemVer;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::{error::Error, process::exit};
 use ureq;
 
 use pubgrub_dependency_provider_elm::dependency_provider::{
@@ -10,25 +11,81 @@ use pubgrub_dependency_provider_elm::dependency_provider::{
 };
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
 
+const HELP: &str = r#"
+solve_pkg_deps
+
+Solve dependencies of an Elm package.
+By default, try in offline mode first
+and switch to online mode if that fails.
+
+USAGE:
+    solve_pkg_deps [FLAGS] author/package@version
+    For example:
+        solve_pkg_deps ianmackenzie/elm-3d-scene@1.0.1
+        solve_pkg_deps --offline jxxcarlson/elm-tar@4.0.0
+        solve_pkg_deps --online-newest w0rm/elm-physics@5.1.1
+        solve_pkg_deps --online-oldest lucamug/style-framework@1.1.0
+
+FLAGS:
+    --help                 # Print this message and exit
+    --offline              # No network request, use only installed packages
+    --online-newest        # Use the newest compatible version
+    --online-oldest        # Use the oldest compatible version
+"#;
+
 fn main() {
-    let arg = std::env::args().skip(1).next().unwrap();
-    let pkg_version = PkgVersion::from_str(&arg).unwrap();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let is_option = |s: &String| s.starts_with("--");
+    let (options, pkg): (Vec<String>, Vec<String>) = args.into_iter().partition(is_option);
+
+    // Check for the --help option
+    if options.contains(&"--help".to_string()) {
+        println!("{}", HELP);
+        exit(0);
+    }
+
+    let mut strategy = None;
+    if options.contains(&"--online-newest".to_string()) {
+        strategy = Some(VersionStrategy::Newest);
+    } else if options.contains(&"--online-oldest".to_string()) {
+        strategy = Some(VersionStrategy::Oldest);
+    }
+    let pkg_version = PkgVersion::from_str(&pkg[0]).unwrap();
+    run(pkg_version, strategy);
+}
+
+fn run(pkg_version: PkgVersion, strategy: Option<VersionStrategy>) {
     let author = &pkg_version.author_pkg.author;
     let pkg = &pkg_version.author_pkg.pkg;
-    let offline_deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-    let online_deps_provider = ElmPackageProviderOnline::new(
-        elm_home(),
-        "0.19.1",
-        "https://package.elm-lang.org",
-        http_fetch,
-        VersionStrategy::Oldest,
-    )
-    .expect("Error initializing the online dependency provider");
-    match resolve(
-        &online_deps_provider,
-        format!("{}/{}", author, pkg),
-        pkg_version.version,
-    ) {
+    let author_pkg = format!("{}/{}", author, pkg);
+    let version = pkg_version.version;
+    match strategy {
+        None => {
+            let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
+            resolve_deps(&deps_provider, author_pkg, version);
+        }
+        Some(strat) => {
+            let deps_provider = ElmPackageProviderOnline::new(
+                elm_home(),
+                "0.19.1",
+                "https://package.elm-lang.org",
+                http_fetch,
+                strat,
+            )
+            .expect("Error initializing the online dependency provider");
+            resolve_deps(&deps_provider, author_pkg, version);
+            // Save the versions cache
+            deps_provider.save_cache().unwrap();
+        }
+    };
+}
+
+fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
+    deps_provider: &DP,
+    pkg: String,
+    version: SemVer,
+) {
+    match resolve(deps_provider, pkg, version) {
         Ok(all_deps) => {
             let mut all_deps_formatted: Vec<_> = all_deps
                 .iter()
@@ -39,8 +96,6 @@ fn main() {
         }
         Err(err) => eprintln!("{:?}", err),
     }
-    // Save the versions cache
-    online_deps_provider.save_cache().unwrap();
 }
 
 fn elm_home() -> PathBuf {
