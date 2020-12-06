@@ -44,27 +44,38 @@ fn main() {
         exit(0);
     }
 
-    let mut strategy = None;
+    let offline = options.contains(&"--offline".to_string());
+    let mut online_strat = None;
     if options.contains(&"--online-newest".to_string()) {
-        strategy = Some(VersionStrategy::Newest);
+        online_strat = Some(VersionStrategy::Newest);
     } else if options.contains(&"--online-oldest".to_string()) {
-        strategy = Some(VersionStrategy::Oldest);
+        online_strat = Some(VersionStrategy::Oldest);
     }
     let pkg_version = PkgVersion::from_str(&pkg[0]).unwrap();
-    run(pkg_version, strategy);
+    run(pkg_version, offline, online_strat);
 }
 
-fn run(pkg_version: PkgVersion, strategy: Option<VersionStrategy>) {
+fn run(pkg_version: PkgVersion, offline: bool, online_strat: Option<VersionStrategy>) {
     let author = &pkg_version.author_pkg.author;
     let pkg = &pkg_version.author_pkg.pkg;
     let author_pkg = format!("{}/{}", author, pkg);
-    let version = pkg_version.version;
-    match strategy {
-        None => {
+    let version = pkg_version.version.clone();
+    match (offline, online_strat) {
+        (true, _) => {
+            eprintln!("Solving offline");
             let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
             resolve_deps(&deps_provider, author_pkg, version);
         }
-        Some(strat) => {
+        (false, None) => {
+            eprintln!("Solving offline");
+            let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
+            if !resolve_deps(&deps_provider, author_pkg, version) {
+                eprintln!("Offline solving failed, switching to online");
+                run(pkg_version, false, Some(VersionStrategy::Newest));
+            }
+        }
+        (false, Some(strat)) => {
+            eprintln!("Solving online with strategy {:?}", &strat);
             let deps_provider = ElmPackageProviderOnline::new(
                 elm_home(),
                 "0.19.1",
@@ -84,7 +95,7 @@ fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
     deps_provider: &DP,
     pkg: String,
     version: SemVer,
-) {
+) -> bool {
     match resolve(deps_provider, pkg, version) {
         Ok(all_deps) => {
             let mut all_deps_formatted: Vec<_> = all_deps
@@ -92,9 +103,13 @@ fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
                 .map(|(p, v)| format!("{}@{}", p, v))
                 .collect();
             all_deps_formatted.sort();
-            eprintln!("{:#?}", all_deps_formatted)
+            eprintln!("{:#?}", all_deps_formatted);
+            true
         }
-        Err(err) => eprintln!("{:?}", err),
+        Err(err) => {
+            eprintln!("{:?}", err);
+            false
+        }
     }
 }
 

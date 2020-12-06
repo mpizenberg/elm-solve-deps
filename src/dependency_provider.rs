@@ -78,6 +78,7 @@ use crate::pkg_version::{Cache, Pkg, PkgVersion};
 // OFFLINE #####################################################################
 // #############################################################################
 
+#[derive(Debug, Clone)]
 pub struct ElmPackageProviderOffline {
     elm_home: PathBuf,
     elm_version: String,
@@ -175,6 +176,7 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
 // ONLINE ######################################################################
 // #############################################################################
 
+#[derive(Debug, Clone)]
 pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>>> {
     elm_home: PathBuf,
     elm_version: String,
@@ -184,6 +186,7 @@ pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>
     strategy: VersionStrategy,
 }
 
+#[derive(Debug, Clone)]
 pub enum VersionStrategy {
     Newest,
     Oldest,
