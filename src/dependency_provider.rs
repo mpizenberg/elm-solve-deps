@@ -179,7 +179,7 @@ pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>
     elm_home: PathBuf,
     elm_version: String,
     remote: String,
-    versions_cache: Cache,
+    pub versions_cache: Cache,
     http_fetch: F,
 }
 
@@ -221,7 +221,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
             let versions = self
                 .versions_cache
                 .cache
-                .get(&Pkg::from_str(package).unwrap())
+                .get(package)
                 .unwrap_or_else(|| &empty_tree);
             // List versions with latest first
             versions.iter().rev().cloned()

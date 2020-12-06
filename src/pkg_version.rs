@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -11,7 +12,7 @@ use crate::project_config::PackageConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Cache {
-    pub cache: BTreeMap<Pkg, BTreeSet<SemVer>>,
+    pub cache: BTreeMap<String, BTreeSet<SemVer>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,22 +79,22 @@ impl Cache {
             );
             eprintln!("Request to {}", url);
             let pkgs_str = http_fetch(&url)?;
-            let mut lines = pkgs_str.lines();
+            let new_versions_str: Vec<&str> = serde_json::from_str(&pkgs_str)?;
             // Check that the first package in the list was already in cache
-            let first_pkg = PkgVersion::from_str(lines.next().unwrap()).unwrap();
+            let first_pkg = PkgVersion::from_str(new_versions_str[0]).unwrap();
             if self
                 .cache
-                .get(&first_pkg.author_pkg)
+                .get(&first_pkg.author_pkg.to_string())
                 .and_then(|pkg_versions| pkg_versions.get(&first_pkg.version))
                 .is_some()
             {
-                // Continue as normal: register every line as a package version
-                for line in lines {
+                // Continue as normal: register every new package version
+                for version_str in &new_versions_str[1..] {
                     let PkgVersion {
                         author_pkg,
                         version,
-                    } = PkgVersion::from_str(line).unwrap();
-                    let pkg_entry = self.cache.entry(author_pkg).or_default();
+                    } = PkgVersion::from_str(version_str).unwrap();
+                    let pkg_entry = self.cache.entry(author_pkg.to_string()).or_default();
                     pkg_entry.insert(version);
                 }
             } else {
@@ -112,16 +113,7 @@ impl Cache {
         let url = format!("{}/all-packages", remote_base_url);
         eprintln!("Request to {}", url);
         let all_pkg_str = http_fetch(&url)?;
-        let all_pkg: BTreeMap<String, Vec<String>> = serde_json::from_str(&all_pkg_str)?;
-        let cache = all_pkg
-            .iter()
-            .map(|(p, vs)| {
-                let versions: BTreeSet<_> =
-                    vs.iter().map(|v| SemVer::from_str(v).unwrap()).collect();
-                (Pkg::from_str(p).unwrap(), versions)
-            })
-            .collect();
-        Ok(Self { cache })
+        serde_json::from_str(&all_pkg_str).map_err(|e| e.into())
     }
 }
 
@@ -244,5 +236,11 @@ impl FromStr for Pkg {
         let author = s[0..author_sep].to_string();
         let pkg = s[(author_sep + 1)..].to_string();
         Ok(Pkg { author, pkg })
+    }
+}
+
+impl fmt::Display for Pkg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", &self.author, &self.pkg)
     }
 }

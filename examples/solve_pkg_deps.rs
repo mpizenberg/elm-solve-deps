@@ -21,9 +21,10 @@ fn main() {
         "0.19.1",
         "https://package.elm-lang.org",
         http_fetch,
-    );
+    )
+    .expect("Error initializing the online dependency provider");
     match resolve(
-        &offline_deps_provider,
+        &online_deps_provider,
         format!("{}/{}", author, pkg),
         pkg_version.version,
     ) {
@@ -37,6 +38,11 @@ fn main() {
         }
         Err(err) => eprintln!("{:?}", err),
     }
+    // Save the versions cache
+    online_deps_provider
+        .versions_cache
+        .save(elm_home())
+        .unwrap();
 }
 
 fn elm_home() -> PathBuf {
