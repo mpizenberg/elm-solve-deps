@@ -91,12 +91,16 @@ fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
     deps_provider: &DP,
     pkg_version: &Option<PkgVersion>,
 ) -> bool {
-    let pkg_version = pkg_version.as_ref().unwrap();
-    let author = &pkg_version.author_pkg.author;
-    let pkg = &pkg_version.author_pkg.pkg;
-    let author_pkg = format!("{}/{}", author, pkg);
-    let version = pkg_version.version.clone();
-    match resolve(deps_provider, author_pkg, version) {
+    let (pkg_id, version, deps_provider) = match pkg_version {
+        None => panic!("You forgot to give a package to solve"),
+        Some(pkg_v) => {
+            let author = &pkg_v.author_pkg.author;
+            let pkg = &pkg_v.author_pkg.pkg;
+            let pkg_id = format!("{}/{}", author, pkg);
+            (pkg_id, pkg_v.version.clone(), deps_provider)
+        }
+    };
+    match resolve(deps_provider, pkg_id, version) {
         Ok(all_deps) => {
             let mut all_deps_formatted: Vec<_> = all_deps
                 .iter()
