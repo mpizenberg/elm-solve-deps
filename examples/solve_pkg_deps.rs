@@ -51,25 +51,21 @@ fn main() {
     } else if options.contains(&"--online-oldest".to_string()) {
         online_strat = Some(VersionStrategy::Oldest);
     }
-    let pkg_version = PkgVersion::from_str(&pkg[0]).unwrap();
+    let pkg_version = pkg.get(0).map(|p| PkgVersion::from_str(p).unwrap());
     run(pkg_version, offline, online_strat);
 }
 
-fn run(pkg_version: PkgVersion, offline: bool, online_strat: Option<VersionStrategy>) {
-    let author = &pkg_version.author_pkg.author;
-    let pkg = &pkg_version.author_pkg.pkg;
-    let author_pkg = format!("{}/{}", author, pkg);
-    let version = pkg_version.version.clone();
+fn run(pkg_version: Option<PkgVersion>, offline: bool, online_strat: Option<VersionStrategy>) {
     match (offline, online_strat) {
         (true, _) => {
             eprintln!("Solving offline");
             let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-            resolve_deps(&deps_provider, author_pkg, version);
+            resolve_deps(&deps_provider, &pkg_version);
         }
         (false, None) => {
             eprintln!("Solving offline");
             let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-            if !resolve_deps(&deps_provider, author_pkg, version) {
+            if !resolve_deps(&deps_provider, &pkg_version) {
                 eprintln!("Offline solving failed, switching to online");
                 run(pkg_version, false, Some(VersionStrategy::Newest));
             }
@@ -84,7 +80,7 @@ fn run(pkg_version: PkgVersion, offline: bool, online_strat: Option<VersionStrat
                 strat,
             )
             .expect("Error initializing the online dependency provider");
-            resolve_deps(&deps_provider, author_pkg, version);
+            resolve_deps(&deps_provider, &pkg_version);
             // Save the versions cache
             deps_provider.save_cache().unwrap();
         }
@@ -93,10 +89,14 @@ fn run(pkg_version: PkgVersion, offline: bool, online_strat: Option<VersionStrat
 
 fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
     deps_provider: &DP,
-    pkg: String,
-    version: SemVer,
+    pkg_version: &Option<PkgVersion>,
 ) -> bool {
-    match resolve(deps_provider, pkg, version) {
+    let pkg_version = pkg_version.as_ref().unwrap();
+    let author = &pkg_version.author_pkg.author;
+    let pkg = &pkg_version.author_pkg.pkg;
+    let author_pkg = format!("{}/{}", author, pkg);
+    let version = pkg_version.version.clone();
+    match resolve(deps_provider, author_pkg, version) {
         Ok(all_deps) => {
             let mut all_deps_formatted: Vec<_> = all_deps
                 .iter()
