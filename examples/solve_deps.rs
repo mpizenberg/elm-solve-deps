@@ -15,19 +15,22 @@ use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
 use pubgrub_dependency_provider_elm::project_config::ProjectConfig;
 
 const HELP: &str = r#"
-solve_pkg_deps
+solve_deps
 
-Solve dependencies of an Elm package.
+Solve dependencies of an Elm project or published package.
 By default, try in offline mode first
 and switch to online mode if that fails.
 
 USAGE:
-    solve_pkg_deps [FLAGS] author/package@version
+    solve_deps [FLAGS...] [author/package@version]
     For example:
-        solve_pkg_deps ianmackenzie/elm-3d-scene@1.0.1
-        solve_pkg_deps --offline jxxcarlson/elm-tar@4.0.0
-        solve_pkg_deps --online-newest w0rm/elm-physics@5.1.1
-        solve_pkg_deps --online-oldest lucamug/style-framework@1.1.0
+        solve_deps
+        solve_deps --help
+        solve_deps --offline
+        solve_deps ianmackenzie/elm-3d-scene@1.0.1
+        solve_deps --offline jxxcarlson/elm-tar@4.0.0
+        solve_deps --online-newest w0rm/elm-physics@5.1.1
+        solve_deps --online-oldest lucamug/style-framework@1.1.0
 
 FLAGS:
     --help                 # Print this message and exit
