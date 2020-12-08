@@ -1,5 +1,7 @@
 use dirs;
+use pubgrub::range::Range;
 use pubgrub::solver::{resolve, DependencyProvider};
+use pubgrub::type_aliases::Map;
 use pubgrub::version::SemanticVersion as SemVer;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -7,9 +9,10 @@ use std::{error::Error, process::exit};
 use ureq;
 
 use pubgrub_dependency_provider_elm::dependency_provider::{
-    ElmPackageProviderOffline, ElmPackageProviderOnline, VersionStrategy,
+    ElmPackageProviderOffline, ElmPackageProviderOnline, ProjectAdapter, VersionStrategy,
 };
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
+use pubgrub_dependency_provider_elm::project_config::ProjectConfig;
 
 const HELP: &str = r#"
 solve_pkg_deps
@@ -60,12 +63,12 @@ fn run(pkg_version: Option<PkgVersion>, offline: bool, online_strat: Option<Vers
         (true, _) => {
             eprintln!("Solving offline");
             let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-            resolve_deps(&deps_provider, &pkg_version);
+            solve_deps(&deps_provider, &pkg_version);
         }
         (false, None) => {
             eprintln!("Solving offline");
             let deps_provider = ElmPackageProviderOffline::new(elm_home(), "0.19.1");
-            if !resolve_deps(&deps_provider, &pkg_version) {
+            if !solve_deps(&deps_provider, &pkg_version) {
                 eprintln!("Offline solving failed, switching to online");
                 run(pkg_version, false, Some(VersionStrategy::Newest));
             }
@@ -80,26 +83,73 @@ fn run(pkg_version: Option<PkgVersion>, offline: bool, online_strat: Option<Vers
                 strat,
             )
             .expect("Error initializing the online dependency provider");
-            resolve_deps(&deps_provider, &pkg_version);
+            solve_deps(&deps_provider, &pkg_version);
             // Save the versions cache
             deps_provider.save_cache().unwrap();
         }
     };
 }
 
-fn resolve_deps<DP: DependencyProvider<String, SemVer>>(
+fn solve_deps<DP: DependencyProvider<String, SemVer>>(
     deps_provider: &DP,
     pkg_version: &Option<PkgVersion>,
 ) -> bool {
-    let (pkg_id, version, deps_provider) = match pkg_version {
-        None => panic!("You forgot to give a package to solve"),
+    match pkg_version {
+        // No package in CLI arguments so we solve deps of the elm project in the current directory
+        None => {
+            let version = SemVer::new(0, 0, 0);
+            let elm_json_str = std::fs::read_to_string("elm.json")
+                .expect("Are you in an elm project? there was an issue loading the elm.json");
+            let project: ProjectConfig = serde_json::from_str(&elm_json_str).unwrap();
+            match project {
+                ProjectConfig::Application(app_config) => {
+                    let pkg_id = "root".to_string();
+                    let direct_deps: Map<String, Range<SemVer>> = app_config
+                        .dependencies
+                        .direct
+                        .into_iter()
+                        .map(|(p, v)| (p, Range::exact(v)))
+                        .collect();
+                    let deps_provider = ProjectAdapter::new(
+                        pkg_id.clone(),
+                        version.clone(),
+                        direct_deps,
+                        deps_provider,
+                    );
+                    resolve_helper(pkg_id, version, &deps_provider)
+                }
+                ProjectConfig::Package(pkg_config) => {
+                    let pkg_id = pkg_config.name.clone();
+                    let direct_deps: Map<String, Range<SemVer>> = pkg_config
+                        .dependencies
+                        .into_iter()
+                        .map(|(p, c)| (p, c.0))
+                        .collect();
+                    let deps_provider = ProjectAdapter::new(
+                        pkg_id.clone(),
+                        version.clone(),
+                        direct_deps,
+                        deps_provider,
+                    );
+                    resolve_helper(pkg_id, version, &deps_provider)
+                }
+            }
+        }
+        // A published package was directly provided as CLI argument
         Some(pkg_v) => {
             let author = &pkg_v.author_pkg.author;
             let pkg = &pkg_v.author_pkg.pkg;
             let pkg_id = format!("{}/{}", author, pkg);
-            (pkg_id, pkg_v.version.clone(), deps_provider)
+            resolve_helper(pkg_id, pkg_v.version, deps_provider)
         }
-    };
+    }
+}
+
+fn resolve_helper<DP: DependencyProvider<String, SemVer>>(
+    pkg_id: String,
+    version: SemVer,
+    deps_provider: &DP,
+) -> bool {
     match resolve(deps_provider, pkg_id, version) {
         Ok(all_deps) => {
             let mut all_deps_formatted: Vec<_> = all_deps
