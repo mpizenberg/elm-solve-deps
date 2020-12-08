@@ -80,16 +80,24 @@ impl Cache {
             eprintln!("Request to {}", url);
             let pkgs_str = http_fetch(&url)?;
             let new_versions_str: Vec<&str> = serde_json::from_str(&pkgs_str)?;
-            // Check that the first package in the list was already in cache
-            let first_pkg = PkgVersion::from_str(new_versions_str[0]).unwrap();
+            if new_versions_str.is_empty() {
+                // Reload from scratch since it means a package was deleted from the registry
+                // and no new package showed up
+                *self = Self::from_remote_all_pkg(remote_base_url, http_fetch)?;
+                return Ok(());
+            }
+            // Check that the last package in the list was already in cache
+            // (the list returned by the package server is sorted newest first)
+            let (last, newers) = new_versions_str.split_last().unwrap();
+            let last_pkg = PkgVersion::from_str(last).unwrap();
             if self
                 .cache
-                .get(&first_pkg.author_pkg.to_string())
-                .and_then(|pkg_versions| pkg_versions.get(&first_pkg.version))
+                .get(&last_pkg.author_pkg.to_string())
+                .and_then(|pkg_versions| pkg_versions.get(&last_pkg.version))
                 .is_some()
             {
                 // Continue as normal: register every new package version
-                for version_str in &new_versions_str[1..] {
+                for version_str in &newers[..] {
                     let PkgVersion {
                         author_pkg,
                         version,
