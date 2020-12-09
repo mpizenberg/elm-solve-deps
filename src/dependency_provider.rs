@@ -215,7 +215,8 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
                 let pkg_config = pkg_version.load_config(&self.elm_home, &self.elm_version)?;
                 let mut cache = self.cache.borrow_mut();
                 cache.add_dependencies(
-                    pkg_config.name.clone(),
+                    // pkg_config.name.clone(), // This is different if I hijack a package in ~/.elm/
+                    pkg.borrow().clone(),
                     pkg_config.version.clone(),
                     pkg_config
                         .dependencies_iter()
@@ -333,6 +334,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
             version: version.clone(),
         };
         let pkg_config = pkg_version
+            // TODO: reorder that to load_config first
             .load_from_cache(&self.elm_home)
             .or_else(|_| pkg_version.load_config(&self.elm_home, &self.elm_version))
             .or_else(|_| {
