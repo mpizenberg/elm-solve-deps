@@ -87,7 +87,7 @@ use crate::pkg_version::{Cache, Pkg, PkgVersion};
 pub struct ProjectAdapter<'a, DP: DependencyProvider<String, SemVer>> {
     pkg_id: String,
     version: SemVer,
-    direct_deps: Map<String, Range<SemVer>>,
+    direct_deps: &'a Map<String, Range<SemVer>>,
     deps_provider: &'a DP,
 }
 
@@ -96,7 +96,7 @@ impl<'a, DP: DependencyProvider<String, SemVer>> ProjectAdapter<'a, DP> {
     pub fn new(
         pkg_id: String,
         version: SemVer,
-        direct_deps: Map<String, Range<SemVer>>,
+        direct_deps: &'a Map<String, Range<SemVer>>,
         deps_provider: &'a DP,
     ) -> Self {
         if pkg_id.as_str() == "elm" {

@@ -116,7 +116,7 @@ fn solve_deps<DP: DependencyProvider<String, SemVer>>(
                     let deps_provider = ProjectAdapter::new(
                         pkg_id.clone(),
                         version.clone(),
-                        direct_deps,
+                        &direct_deps,
                         deps_provider,
                     );
                     resolve_helper(pkg_id, version, &deps_provider)
@@ -131,7 +131,7 @@ fn solve_deps<DP: DependencyProvider<String, SemVer>>(
                     let deps_provider = ProjectAdapter::new(
                         pkg_id.clone(),
                         version.clone(),
-                        direct_deps,
+                        &direct_deps,
                         deps_provider,
                     );
                     resolve_helper(pkg_id, version, &deps_provider)
