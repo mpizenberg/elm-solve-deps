@@ -170,6 +170,9 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
     /// we walk the cache of installed versions in ~/.elm/0.19.1/packages/author/package/
     /// and register in an OfflineDependencyProvider those packages.
     /// Then we can call offlineProvider.choose_package_version(...).
+    ///
+    /// TODO: Improve by only reading the existing versions
+    /// and only deserialize a version elm.json later in get_dependencies.
     fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
