@@ -78,7 +78,7 @@ use crate::pkg_version::{Cache, Pkg, PkgVersion};
 /// Dependency provider of a package or an application elm project.
 /// Will only work properly if used to resolve dependencies for its root.
 ///
-/// ```rust
+/// ```ignore
 /// let pkg_id: String = ...;
 /// let version: SemVer = ...;
 /// let project_dp = ProjectAdapter::new(pkg_id.clone(), version.clone(), ...);
