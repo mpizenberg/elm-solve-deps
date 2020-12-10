@@ -334,9 +334,8 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
             version: version.clone(),
         };
         let pkg_config = pkg_version
-            // TODO: reorder that to load_config first
-            .load_from_cache(&self.elm_home)
-            .or_else(|_| pkg_version.load_config(&self.elm_home, &self.elm_version))
+            .load_config(&self.elm_home, &self.elm_version)
+            .or_else(|_| pkg_version.load_from_cache(&self.elm_home))
             .or_else(|_| {
                 pkg_version.fetch_config(&self.elm_home, &self.remote, &self.http_fetch)
             })?;
