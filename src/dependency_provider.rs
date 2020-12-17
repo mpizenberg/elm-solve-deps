@@ -11,28 +11,17 @@
 //
 // - offline: use exclusively installed packages.
 // - online: no network restriction to select packages.
-// - prioritized: no restriction, but installed packages are prioritized.
 // - progressive (default): try offline first, if it fails switch to prioritized.
 //
 // ## offline
-//
-// We use the OfflineDependencyProvider as a base for this.
 //
 // For choose_package_version, we can only pick versions existing on the file system.
 // In addition, we only want to query the file system once per package needed.
 // So, the first time we want the list of versions for a given package,
 // we walk the cache of installed versions in ~/.elm/0.19.1/packages/author/package/
-// and register in an OfflineDependencyProvider those packages.
-// Then we can call offlineProvider.choose_package_version(...).
 //
-// For get_dependencies, we can directly call offlineProvider.get_dependencies()
-// since we have already registered packages with their dependencies
-// when walking the cache of installed versions in choose_package_version.
-//
-// Rmq: this can be slightly more efficient if instead of OfflineDependencyProvider,
-// we make our own, in which we store existing packages and dependencies
-// in two different fields, to avoid the need of loading the elm.json of all versions
-// when we just want the existing versions.
+// For get_dependencies, we load the elm.json config of the installed package
+// and extract dependencies from it.
 //
 // ## online
 //
@@ -46,24 +35,13 @@
 // otherwise we check if the package is installed on the disk and read there,
 // otherwise we ask for dependencies on the network.
 //
-// ## prioritized
-//
-// At the beginning we update the list of existing packages just like in online mode.
-//
-// For choose_package_version, we can prioritize installed packages.
-// A concrete way of doing it is using the choose_package_with_fewest_versions strategy
-// with a function that list only installed versions.
-// If that returns no package, we call it again with the full list of existing packages.
-//
-// For get_dependencies, we do the same that in online mode.
-//
 // ## progressive (default)
 //
 // Try to resolve dependencies in offline mode.
 // If it fails, repeat in prioritized mode.
 
 use pubgrub::range::Range;
-use pubgrub::solver::{Dependencies, DependencyProvider, OfflineDependencyProvider};
+use pubgrub::solver::{Dependencies, DependencyProvider};
 use pubgrub::type_aliases::Map;
 use pubgrub::version::SemanticVersion as SemVer;
 use std::borrow::Borrow;
@@ -150,7 +128,7 @@ impl<'a, DP: DependencyProvider<String, SemVer>> DependencyProvider<String, SemV
 pub struct ElmPackageProviderOffline {
     elm_home: PathBuf,
     elm_version: String,
-    cache: RefCell<OfflineDependencyProvider<String, SemVer>>,
+    versions_cache: RefCell<Cache>,
 }
 
 impl ElmPackageProviderOffline {
@@ -158,7 +136,7 @@ impl ElmPackageProviderOffline {
         ElmPackageProviderOffline {
             elm_home: elm_home.into(),
             elm_version: elm_version.to_string(),
-            cache: RefCell::new(OfflineDependencyProvider::new()),
+            versions_cache: RefCell::new(Cache::new()),
         }
     }
 }
@@ -181,66 +159,54 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
         for (pkg, range) in potential_packages {
             // If we've already looked for versions of that package
             // just skip it and continue with the next one
-            if self.cache.borrow().versions(pkg.borrow()).is_some() {
+            let cache = self.versions_cache.borrow();
+            if cache.cache.get(pkg.borrow()).is_some() {
                 initial_potential_packages.push((pkg, range));
                 continue;
             }
-
-            let p = Pkg::from_str(pkg.borrow()).unwrap();
-            let p_dir = p.config_path(&self.elm_home, &self.elm_version);
-            let sub_dirs = match std::fs::read_dir(&p_dir) {
-                Ok(s) => s,
-                Err(_) => {
-                    // The directory does not exist so probably
-                    // no version of this package have ever been installed.
-                    initial_potential_packages.push((pkg, range));
-                    continue;
-                }
-            };
-
-            // List installed versions
-            let versions: Vec<SemVer> = sub_dirs
-                .filter_map(|f| f.ok())
-                // only keep directories
-                .filter(|entry| entry.file_type().map(|f| f.is_dir()).unwrap_or(false))
-                // retrieve the directory name as a string
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                // convert into a version
-                .filter_map(|s| SemVer::from_str(&s).ok())
-                .collect();
-
-            // Deserialize and register those versions into the cache
-            for v in versions.into_iter() {
-                let pkg_version = PkgVersion {
-                    author_pkg: p.clone(),
-                    version: v,
-                };
-                let pkg_config = pkg_version.load_config(&self.elm_home, &self.elm_version)?;
-                let mut cache = self.cache.borrow_mut();
-                cache.add_dependencies(
-                    // pkg_config.name.clone(), // This is different if I hijack a package in ~/.elm/
-                    pkg.borrow().clone(),
-                    pkg_config.version.clone(),
-                    pkg_config
-                        .dependencies_iter()
-                        .map(|(p, r)| (p.clone(), r.clone())),
-                );
-            }
+            drop(cache);
+            let versions: BTreeSet<SemVer> =
+                Cache::list_installed_versions(&self.elm_home, &self.elm_version, &pkg.borrow())?;
+            let mut cache = self.versions_cache.borrow_mut();
+            cache.cache.insert(pkg.borrow().clone(), versions);
             initial_potential_packages.push((pkg, range));
         }
-
-        // Let offline dependency provider choose the package version.
-        self.cache
-            .borrow()
-            .choose_package_version(initial_potential_packages.into_iter())
+        // Use the helper function from pubgrub to choose a package.
+        let empty_tree = BTreeSet::new();
+        let list_available_versions = |package: &String| {
+            let cache = self.versions_cache.borrow();
+            let versions = cache
+                .cache
+                .get(package)
+                .unwrap_or_else(|| &empty_tree)
+                .clone();
+            versions.into_iter().rev()
+        };
+        Ok(pubgrub::solver::choose_package_with_fewest_versions(
+            list_available_versions,
+            initial_potential_packages.into_iter(),
+        ))
     }
 
+    /// Load the dependencies from the elm.json of the installed package.
     fn get_dependencies(
         &self,
         package: &String,
         version: &SemVer,
     ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
-        self.cache.borrow().get_dependencies(package, version)
+        let author_pkg = Pkg::from_str(package).unwrap();
+        let pkg_version = PkgVersion {
+            author_pkg,
+            version: version.clone(),
+        };
+        let pkg_config = pkg_version.load_config(&self.elm_home, &self.elm_version)?;
+        Ok(Dependencies::Known(
+            pkg_config
+                .dependencies
+                .into_iter()
+                .map(|(p, c)| (p, c.0))
+                .collect(),
+        ))
     }
 }
 

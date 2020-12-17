@@ -35,6 +35,35 @@ impl Cache {
         }
     }
 
+    /// List installed versions in ~/.elm/.
+    pub fn list_installed_versions<P: AsRef<Path>>(
+        elm_home: P,
+        elm_version: &str,
+        author_pkg: &str,
+    ) -> Result<BTreeSet<SemVer>, Box<dyn Error>> {
+        let p = Pkg::from_str(author_pkg).unwrap();
+        let p_dir = p.config_path(elm_home, elm_version);
+        let sub_dirs = match std::fs::read_dir(&p_dir) {
+            Ok(s) => s,
+            Err(_) => {
+                // The directory does not exist so probably
+                // no version of this package have ever been installed.
+                return Ok(BTreeSet::new());
+            }
+        };
+
+        // List installed versions
+        Ok(sub_dirs
+            .filter_map(|f| f.ok())
+            // only keep directories
+            .filter(|entry| entry.file_type().map(|f| f.is_dir()).unwrap_or(false))
+            // retrieve the directory name as a string
+            .filter_map(|entry| entry.file_name().into_string().ok())
+            // convert into a version
+            .filter_map(|s| SemVer::from_str(&s).ok())
+            .collect())
+    }
+
     /// Load the cache from its default location.
     pub fn load<P: AsRef<Path>>(elm_home: P) -> Result<Self, Box<dyn Error>> {
         eprintln!(
