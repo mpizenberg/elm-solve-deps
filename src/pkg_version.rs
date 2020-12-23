@@ -66,20 +66,20 @@ impl Cache {
 
     /// Load the cache from its default location.
     pub fn load<P: AsRef<Path>>(elm_home: P) -> Result<Self, Box<dyn Error>> {
-        eprintln!(
-            "Loading versions cache from {}",
-            Self::file_path(&elm_home).display()
-        );
+        // eprintln!(
+        //     "Loading versions cache from {}",
+        //     Self::file_path(&elm_home).display()
+        // );
         let s = std::fs::read_to_string(Self::file_path(elm_home))?;
         serde_json::from_str(&s).map_err(|e| e.into())
     }
 
     /// Save the cache to its default location.
     pub fn save<P: AsRef<Path>>(&self, elm_home: P) -> Result<(), Box<dyn Error>> {
-        eprintln!(
-            "Saving versions cache into {}",
-            Self::file_path(&elm_home).display()
-        );
+        // eprintln!(
+        //     "Saving versions cache into {}",
+        //     Self::file_path(&elm_home).display()
+        // );
         let s = serde_json::to_string(self)?;
         std::fs::write(Self::file_path(elm_home), &s).map_err(|e| e.into())
     }
@@ -106,7 +106,7 @@ impl Cache {
                 remote_base_url,
                 versions_count.max(1) - 1
             );
-            eprintln!("Request to {}", url);
+            // eprintln!("Request to {}", url);
             let pkgs_str = http_fetch(&url)?;
             let new_versions_str: Vec<&str> = serde_json::from_str(&pkgs_str)?;
             if new_versions_str.is_empty() {
@@ -148,7 +148,7 @@ impl Cache {
         http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
     ) -> Result<Self, Box<dyn Error>> {
         let url = format!("{}/all-packages", remote_base_url);
-        eprintln!("Request to {}", url);
+        // eprintln!("Request to {}", url);
         let all_pkg_str = http_fetch(&url)?;
         serde_json::from_str(&all_pkg_str).map_err(|e| e.into())
     }
@@ -162,7 +162,7 @@ impl PkgVersion {
         remote_base_url: &str,
         http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
     ) -> Result<PackageConfig, Box<dyn Error>> {
-        eprintln!("Fetching {}", self.to_url(remote_base_url));
+        // eprintln!("Fetching {}", self.to_url(remote_base_url));
         let config_str = http_fetch(&self.to_url(remote_base_url))?;
         std::fs::create_dir_all(self.pubgrub_cache_dir(&elm_home))?;
         std::fs::write(self.pubgrub_cache_file(&elm_home), &config_str)?;
@@ -176,7 +176,7 @@ impl PkgVersion {
         elm_version: &str,
     ) -> Result<PackageConfig, Box<dyn Error>> {
         let config_path = self.config_path(elm_home, elm_version);
-        eprintln!("Loading {:?}", &config_path);
+        // eprintln!("Loading {:?}", &config_path);
         let config_str = std::fs::read_to_string(&config_path)?;
         let config = serde_json::from_str(&config_str)?;
         Ok(config)
@@ -187,7 +187,7 @@ impl PkgVersion {
         elm_home: P,
     ) -> Result<PackageConfig, Box<dyn Error>> {
         let cache_path = self.pubgrub_cache_file(elm_home);
-        eprintln!("Cache-loading {:?}", &cache_path);
+        // eprintln!("Cache-loading {:?}", &cache_path);
         let config_str = std::fs::read_to_string(&cache_path)?;
         let config = serde_json::from_str(&config_str)?;
         Ok(config)
