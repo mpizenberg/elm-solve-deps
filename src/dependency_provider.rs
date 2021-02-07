@@ -97,9 +97,9 @@ impl<'a, DP: DependencyProvider<String, SemVer>> DependencyProvider<String, SemV
     fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
-    ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
+    ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
         let mut potential_packages = potential_packages;
-        let (p, r) = potential_packages.next().unwrap();
+        let (p, r) = potential_packages.next().unwrap(); // unwrap ok since potential_packages must contains at least one item
         if p.borrow() == &self.pkg_id {
             return Ok((p, Some(self.version)));
         }
@@ -111,7 +111,7 @@ impl<'a, DP: DependencyProvider<String, SemVer>> DependencyProvider<String, SemV
         &self,
         package: &String,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
+    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
         if package == &self.pkg_id {
             Ok(Dependencies::Known(self.direct_deps.clone()))
         } else {
@@ -154,7 +154,7 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
     fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
-    ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
+    ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
         let mut initial_potential_packages = Vec::new();
         for (pkg, range) in potential_packages {
             // If we've already looked for versions of that package
@@ -193,8 +193,8 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
         &self,
         package: &String,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
-        let author_pkg = Pkg::from_str(package).unwrap();
+    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
+        let author_pkg = Pkg::from_str(package)?;
         let pkg_version = PkgVersion {
             author_pkg,
             version: version.clone(),
@@ -296,8 +296,8 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
         &self,
         package: &String,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn std::error::Error>> {
-        let author_pkg = Pkg::from_str(&package).unwrap();
+    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
+        let author_pkg = Pkg::from_str(&package)?;
         let pkg_version = PkgVersion {
             author_pkg,
             version: version.clone(),
