@@ -2,10 +2,10 @@ use pubgrub::version::{SemanticVersion as SemVer, VersionParseError};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::error::Error;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use thiserror::Error;
 
 use crate::project_config::PackageConfig;
 
@@ -27,6 +27,54 @@ pub struct Pkg {
     pub pkg: String,
 }
 
+#[derive(Error, Debug)]
+pub enum CacheError {
+    #[error("unable to read/write cache")]
+    FileIoError(#[from] std::io::Error),
+    #[error("failed to parse/convert JSON")]
+    JsonError(#[from] serde_json::Error),
+    #[error("failed to fetch {url:?}")]
+    FetchError {
+        url: String,
+        #[source]
+        source: Box<dyn std::error::Error>,
+    },
+    #[error("failed parse package version")]
+    PkgVersionFromStrError(#[from] PkgVersionError),
+}
+
+#[derive(Error, Debug)]
+pub enum PkgVersionError {
+    #[error("unable to read/write cache")]
+    FileIoError(#[from] std::io::Error),
+    #[error("failed to parse/convert JSON")]
+    JsonError(#[from] serde_json::Error),
+    #[error("failed to fetch {url:?}")]
+    FetchError {
+        url: String,
+        #[source]
+        source: Box<dyn std::error::Error>,
+    },
+    #[error("failed to parse")]
+    ParseError(#[from] PkgVersionParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum PkgVersionParseError {
+    #[error("no package@version separation found in `{0}`")]
+    NoVersionSeparator(String),
+    #[error("failed to parse version in `{0}`")]
+    VersionParseError(#[from] VersionParseError),
+    #[error("failed to parse the package")]
+    PkgParseError(#[from] PkgParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum PkgParseError {
+    #[error("no author/package separation found in `{0}`")]
+    NoAuthorSeparator(String),
+}
+
 impl Cache {
     /// Initialize an empty cache.
     pub fn new() -> Self {
@@ -40,8 +88,8 @@ impl Cache {
         elm_home: P,
         elm_version: &str,
         author_pkg: &str,
-    ) -> Result<BTreeSet<SemVer>, Box<dyn Error>> {
-        let p = Pkg::from_str(author_pkg).unwrap();
+    ) -> Result<BTreeSet<SemVer>, PkgParseError> {
+        let p = Pkg::from_str(author_pkg)?;
         let p_dir = p.config_path(elm_home, elm_version);
         let sub_dirs = match std::fs::read_dir(&p_dir) {
             Ok(s) => s,
@@ -65,7 +113,7 @@ impl Cache {
     }
 
     /// Load the cache from its default location.
-    pub fn load<P: AsRef<Path>>(elm_home: P) -> Result<Self, Box<dyn Error>> {
+    pub fn load<P: AsRef<Path>>(elm_home: P) -> Result<Self, CacheError> {
         // eprintln!(
         //     "Loading versions cache from {}",
         //     Self::file_path(&elm_home).display()
@@ -75,7 +123,7 @@ impl Cache {
     }
 
     /// Save the cache to its default location.
-    pub fn save<P: AsRef<Path>>(&self, elm_home: P) -> Result<(), Box<dyn Error>> {
+    pub fn save<P: AsRef<Path>>(&self, elm_home: P) -> Result<(), CacheError> {
         // eprintln!(
         //     "Saving versions cache into {}",
         //     Self::file_path(&elm_home).display()
@@ -94,8 +142,8 @@ impl Cache {
     pub fn update(
         &mut self,
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+    ) -> Result<(), CacheError> {
         if self.cache.is_empty() {
             *self = Self::from_remote_all_pkg(remote_base_url, http_fetch)?;
             Ok(())
@@ -107,7 +155,8 @@ impl Cache {
                 versions_count.max(1) - 1
             );
             // eprintln!("Request to {}", url);
-            let pkgs_str = http_fetch(&url)?;
+            let pkgs_str =
+                http_fetch(&url).map_err(|e| CacheError::FetchError { url, source: e })?;
             let new_versions_str: Vec<&str> = serde_json::from_str(&pkgs_str)?;
             if new_versions_str.is_empty() {
                 // Reload from scratch since it means a package was deleted from the registry
@@ -117,8 +166,8 @@ impl Cache {
             }
             // Check that the last package in the list was already in cache
             // (the list returned by the package server is sorted newest first)
-            let (last, newers) = new_versions_str.split_last().unwrap();
-            let last_pkg = PkgVersion::from_str(last).unwrap();
+            let (last, newers) = new_versions_str.split_last().unwrap(); // This unwrap is fine since we checked that new_versions_str is not empty
+            let last_pkg = PkgVersion::from_str(last).map_err(PkgVersionError::ParseError)?;
             if self
                 .cache
                 .get(&last_pkg.author_pkg.to_string())
@@ -130,7 +179,7 @@ impl Cache {
                     let PkgVersion {
                         author_pkg,
                         version,
-                    } = PkgVersion::from_str(version_str).unwrap();
+                    } = PkgVersion::from_str(version_str).map_err(PkgVersionError::ParseError)?;
                     let pkg_entry = self.cache.entry(author_pkg.to_string()).or_default();
                     pkg_entry.insert(version);
                 }
@@ -145,11 +194,12 @@ impl Cache {
     /// curl -L https://package.elm-lang.org/all-packages | jq .
     fn from_remote_all_pkg(
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
-    ) -> Result<Self, Box<dyn Error>> {
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+    ) -> Result<Self, CacheError> {
         let url = format!("{}/all-packages", remote_base_url);
         // eprintln!("Request to {}", url);
-        let all_pkg_str = http_fetch(&url)?;
+        let all_pkg_str =
+            http_fetch(&url).map_err(|e| CacheError::FetchError { url, source: e })?;
         serde_json::from_str(&all_pkg_str).map_err(|e| e.into())
     }
 }
@@ -160,10 +210,14 @@ impl PkgVersion {
         &self,
         elm_home: P,
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn Error>>,
-    ) -> Result<PackageConfig, Box<dyn Error>> {
-        // eprintln!("Fetching {}", self.to_url(remote_base_url));
-        let config_str = http_fetch(&self.to_url(remote_base_url))?;
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+    ) -> Result<PackageConfig, PkgVersionError> {
+        let remote_url = self.to_url(remote_base_url);
+        // eprintln!("Fetching {}", &remote_url);
+        let config_str = http_fetch(&remote_url).map_err(|e| PkgVersionError::FetchError {
+            url: remote_url,
+            source: e,
+        })?;
         std::fs::create_dir_all(self.pubgrub_cache_dir(&elm_home))?;
         std::fs::write(self.pubgrub_cache_file(&elm_home), &config_str)?;
         let config = serde_json::from_str(&config_str)?;
@@ -174,7 +228,7 @@ impl PkgVersion {
         &self,
         elm_home: P,
         elm_version: &str,
-    ) -> Result<PackageConfig, Box<dyn Error>> {
+    ) -> Result<PackageConfig, PkgVersionError> {
         let config_path = self.config_path(elm_home, elm_version);
         // eprintln!("Loading {:?}", &config_path);
         let config_str = std::fs::read_to_string(&config_path)?;
@@ -185,7 +239,7 @@ impl PkgVersion {
     pub fn load_from_cache<P: AsRef<Path>>(
         &self,
         elm_home: P,
-    ) -> Result<PackageConfig, Box<dyn Error>> {
+    ) -> Result<PackageConfig, PkgVersionError> {
         let cache_path = self.pubgrub_cache_file(elm_home);
         // eprintln!("Cache-loading {:?}", &cache_path);
         let config_str = std::fs::read_to_string(&cache_path)?;
@@ -254,10 +308,12 @@ impl Pkg {
 }
 
 impl FromStr for PkgVersion {
-    type Err = VersionParseError;
+    type Err = PkgVersionParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let version_sep = s.find('@').expect("Invalid pkg: no version sep");
-        let author_pkg = Pkg::from_str(&s[0..version_sep]).expect("Invalid pkg: no author sep");
+        let version_sep = s
+            .find('@')
+            .ok_or_else(|| PkgVersionParseError::NoVersionSeparator(s.to_string()))?;
+        let author_pkg = Pkg::from_str(&s[0..version_sep])?;
         let version = FromStr::from_str(&s[(version_sep + 1)..])?;
         Ok(PkgVersion {
             author_pkg,
@@ -267,9 +323,11 @@ impl FromStr for PkgVersion {
 }
 
 impl FromStr for Pkg {
-    type Err = ();
+    type Err = PkgParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let author_sep = s.find('/').expect("Invalid pkg: no author sep");
+        let author_sep = s
+            .find('/')
+            .ok_or_else(|| PkgParseError::NoAuthorSeparator(s.to_string()))?;
         let author = s[0..author_sep].to_string();
         let pkg = s[(author_sep + 1)..].to_string();
         Ok(Pkg { author, pkg })

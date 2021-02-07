@@ -256,7 +256,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
     }
 
     /// Save the cache of existing versions.
-    pub fn save_cache(&self) -> Result<(), Box<dyn Error>> {
+    pub fn save_cache(&self) -> Result<(), crate::pkg_version::CacheError> {
         self.versions_cache.save(&self.elm_home)
     }
 }
