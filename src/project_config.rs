@@ -3,7 +3,7 @@
 use crate::constraint::Constraint;
 use pubgrub::range::Range;
 use pubgrub::version::SemanticVersion as SemVer;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap as Map;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -50,7 +50,7 @@ pub struct PackageConfig {
     pub test_dependencies: Map<Pkg, Constraint>,
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct Pkg {
     pub author: String,
     pub pkg: String,
@@ -127,5 +127,22 @@ impl FromStr for Pkg {
 impl fmt::Display for Pkg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", &self.author, &self.pkg)
+    }
+}
+
+// Custom serialization for Pkg
+impl Serialize for Pkg {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Pkg {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
