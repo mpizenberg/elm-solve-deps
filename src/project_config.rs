@@ -32,8 +32,8 @@ pub struct ApplicationConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppDependencies {
-    pub direct: Map<String, SemVer>,
-    pub indirect: Map<String, SemVer>,
+    pub direct: Map<Pkg, SemVer>,
+    pub indirect: Map<Pkg, SemVer>,
 }
 
 /// Struct representing a package elm.json.
@@ -46,11 +46,11 @@ pub struct PackageConfig {
     pub version: SemVer,
     pub elm_version: Constraint,
     pub exposed_modules: ExposedModules,
-    pub dependencies: Map<String, Constraint>,
-    pub test_dependencies: Map<String, Constraint>,
+    pub dependencies: Map<Pkg, Constraint>,
+    pub test_dependencies: Map<Pkg, Constraint>,
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Pkg {
     pub author: String,
     pub pkg: String,
@@ -70,7 +70,7 @@ pub enum ExposedModules {
 }
 
 impl PackageConfig {
-    pub fn dependencies_iter(&self) -> impl Iterator<Item = (&String, &Range<SemVer>)> {
+    pub fn dependencies_iter(&self) -> impl Iterator<Item = (&Pkg, &Range<SemVer>)> {
         self.dependencies
             .iter()
             .map(|(p, constraint)| (p, &constraint.0))
@@ -79,6 +79,10 @@ impl PackageConfig {
 
 // Public Pkg methods.
 impl Pkg {
+    pub fn new(author: String, pkg: String) -> Self {
+        Self { author, pkg }
+    }
+
     pub fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
         Self::packages_dir(elm_home, elm_version)
             .join(&self.author)

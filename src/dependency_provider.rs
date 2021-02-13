@@ -49,7 +49,6 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::PathBuf;
-use std::str::FromStr;
 
 use crate::pkg_version::{Cache, PkgVersion};
 use crate::project_config::Pkg;
@@ -63,22 +62,22 @@ use crate::project_config::Pkg;
 /// let project_dp = ProjectAdapter::new(pkg_id.clone(), version.clone(), ...);
 /// let solution = resolve(&project_dp, pkg_id, version)?;
 /// ```
-pub struct ProjectAdapter<'a, DP: DependencyProvider<String, SemVer>> {
-    pkg_id: String,
+pub struct ProjectAdapter<'a, DP: DependencyProvider<Pkg, SemVer>> {
+    pkg_id: Pkg,
     version: SemVer,
-    direct_deps: &'a Map<String, Range<SemVer>>,
+    direct_deps: &'a Map<Pkg, Range<SemVer>>,
     deps_provider: &'a DP,
 }
 
-impl<'a, DP: DependencyProvider<String, SemVer>> ProjectAdapter<'a, DP> {
+impl<'a, DP: DependencyProvider<Pkg, SemVer>> ProjectAdapter<'a, DP> {
     /// Initialize a project dependency provider.
     pub fn new(
-        pkg_id: String,
+        pkg_id: Pkg,
         version: SemVer,
-        direct_deps: &'a Map<String, Range<SemVer>>,
+        direct_deps: &'a Map<Pkg, Range<SemVer>>,
         deps_provider: &'a DP,
     ) -> Self {
-        if pkg_id.as_str() == "elm" {
+        if pkg_id == Pkg::new("elm".into(), "".into()) {
             panic!(r#"Using "elm" for the root package id is forbidden"#)
         }
         Self {
@@ -90,12 +89,12 @@ impl<'a, DP: DependencyProvider<String, SemVer>> ProjectAdapter<'a, DP> {
     }
 }
 
-impl<'a, DP: DependencyProvider<String, SemVer>> DependencyProvider<String, SemVer>
+impl<'a, DP: DependencyProvider<Pkg, SemVer>> DependencyProvider<Pkg, SemVer>
     for ProjectAdapter<'a, DP>
 {
     /// The list of potential packages can never be empty,
     /// and the root package can only be asked alone, first.
-    fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
+    fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
@@ -110,9 +109,9 @@ impl<'a, DP: DependencyProvider<String, SemVer>> DependencyProvider<String, SemV
 
     fn get_dependencies(
         &self,
-        package: &String,
+        package: &Pkg,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
+    ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         if package == &self.pkg_id {
             Ok(Dependencies::Known(self.direct_deps.clone()))
         } else {
@@ -142,7 +141,7 @@ impl ElmPackageProviderOffline {
     }
 }
 
-impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
+impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
     /// We can only pick versions existing on the file system.
     /// In addition, we only want to query the file system once per package needed.
     /// So, the first time we want the list of versions for a given package,
@@ -152,7 +151,7 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
     ///
     /// TODO: Improve by only reading the existing versions
     /// and only deserialize a version elm.json later in get_dependencies.
-    fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
+    fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
@@ -167,14 +166,14 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
             }
             drop(cache);
             let versions: BTreeSet<SemVer> =
-                Cache::list_installed_versions(&self.elm_home, &self.elm_version, &pkg.borrow())?;
+                Cache::list_installed_versions(&self.elm_home, &self.elm_version, pkg.borrow())?;
             let mut cache = self.versions_cache.borrow_mut();
             cache.cache.insert(pkg.borrow().clone(), versions);
             initial_potential_packages.push((pkg, range));
         }
         // Use the helper function from pubgrub to choose a package.
         let empty_tree = BTreeSet::new();
-        let list_available_versions = |package: &String| {
+        let list_available_versions = |package: &Pkg| {
             let cache = self.versions_cache.borrow();
             let versions = cache
                 .cache
@@ -192,12 +191,11 @@ impl DependencyProvider<String, SemVer> for ElmPackageProviderOffline {
     /// Load the dependencies from the elm.json of the installed package.
     fn get_dependencies(
         &self,
-        package: &String,
+        package: &Pkg,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
-        let author_pkg = Pkg::from_str(package)?;
+    ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         let pkg_version = PkgVersion {
-            author_pkg,
+            author_pkg: package.clone(),
             version: version.clone(),
         };
         let pkg_config = pkg_version.load_config(&self.elm_home, &self.elm_version)?;
@@ -262,17 +260,17 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
     }
 }
 
-impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, SemVer>
+impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemVer>
     for ElmPackageProviderOnline<F>
 {
     /// For choose_package_version, we simply use the pubgrub helper function:
     /// choose_package_with_fewest_versions
-    fn choose_package_version<T: Borrow<String>, U: Borrow<Range<SemVer>>>(
+    fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
         let empty_tree = BTreeSet::new();
-        let list_available_versions = |package: &String| {
+        let list_available_versions = |package: &Pkg| {
             let versions = self
                 .versions_cache
                 .cache
@@ -295,12 +293,11 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<String, S
     /// otherwise we ask for dependencies on the network.
     fn get_dependencies(
         &self,
-        package: &String,
+        package: &Pkg,
         version: &SemVer,
-    ) -> Result<Dependencies<String, SemVer>, Box<dyn Error>> {
-        let author_pkg = Pkg::from_str(&package)?;
+    ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         let pkg_version = PkgVersion {
-            author_pkg,
+            author_pkg: package.clone(),
             version: version.clone(),
         };
         let pkg_config = pkg_version
