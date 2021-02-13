@@ -11,7 +11,7 @@ use crate::project_config::{PackageConfig, Pkg, PkgParseError};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Cache {
-    pub cache: BTreeMap<String, BTreeSet<SemVer>>,
+    pub cache: BTreeMap<Pkg, BTreeSet<SemVer>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,10 +74,9 @@ impl Cache {
     pub fn list_installed_versions<P: AsRef<Path>>(
         elm_home: P,
         elm_version: &str,
-        author_pkg: &str,
+        author_pkg: &Pkg,
     ) -> Result<BTreeSet<SemVer>, PkgParseError> {
-        let p = Pkg::from_str(author_pkg)?;
-        let p_dir = p.config_path(elm_home, elm_version);
+        let p_dir = author_pkg.config_path(elm_home, elm_version);
         let sub_dirs = match std::fs::read_dir(&p_dir) {
             Ok(s) => s,
             Err(_) => {
@@ -157,7 +156,7 @@ impl Cache {
             let last_pkg = PkgVersion::from_str(last).map_err(PkgVersionError::ParseError)?;
             if self
                 .cache
-                .get(&last_pkg.author_pkg.to_string())
+                .get(&last_pkg.author_pkg)
                 .and_then(|pkg_versions| pkg_versions.get(&last_pkg.version))
                 .is_some()
             {
@@ -167,7 +166,7 @@ impl Cache {
                         author_pkg,
                         version,
                     } = PkgVersion::from_str(version_str).map_err(PkgVersionError::ParseError)?;
-                    let pkg_entry = self.cache.entry(author_pkg.to_string()).or_default();
+                    let pkg_entry = self.cache.entry(author_pkg).or_default();
                     pkg_entry.insert(version);
                 }
             } else {
