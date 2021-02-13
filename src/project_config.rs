@@ -79,8 +79,11 @@ impl PackageConfig {
 
 // Public Pkg methods.
 impl Pkg {
-    pub fn new(author: String, pkg: String) -> Self {
-        Self { author, pkg }
+    pub fn new<S: ToString>(author: S, pkg: S) -> Self {
+        Self {
+            author: author.to_string(),
+            pkg: pkg.to_string(),
+        }
     }
 
     pub fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {

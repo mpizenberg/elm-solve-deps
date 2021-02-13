@@ -77,7 +77,7 @@ impl<'a, DP: DependencyProvider<Pkg, SemVer>> ProjectAdapter<'a, DP> {
         direct_deps: &'a Map<Pkg, Range<SemVer>>,
         deps_provider: &'a DP,
     ) -> Self {
-        if pkg_id == Pkg::new("elm".into(), "".into()) {
+        if pkg_id == Pkg::new("elm", "") {
             panic!(r#"Using "elm" for the root package id is forbidden"#)
         }
         Self {
