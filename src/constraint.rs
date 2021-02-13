@@ -34,8 +34,8 @@ impl FromStr for Constraint {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<_> = s.split_whitespace().collect();
-        match parts.as_slice() {
-            &[low, sep1, _, sep2, high] => {
+        match *parts.as_slice() {
+            [low, sep1, _, sep2, high] => {
                 let v1: SemVer = FromStr::from_str(low).map_err(Self::Err::InvalidVersion)?;
                 let v2: SemVer = FromStr::from_str(high).map_err(Self::Err::InvalidVersion)?;
                 if sep1 != "<=" && sep1 != "<" {

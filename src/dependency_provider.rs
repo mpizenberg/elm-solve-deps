@@ -175,11 +175,7 @@ impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
         let empty_tree = BTreeSet::new();
         let list_available_versions = |package: &Pkg| {
             let cache = self.versions_cache.borrow();
-            let versions = cache
-                .cache
-                .get(package)
-                .unwrap_or_else(|| &empty_tree)
-                .clone();
+            let versions = cache.cache.get(package).unwrap_or(&empty_tree).clone();
             versions.into_iter().rev()
         };
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
@@ -196,7 +192,7 @@ impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
     ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         let pkg_version = PkgVersion {
             author_pkg: package.clone(),
-            version: version.clone(),
+            version: *version,
         };
         let pkg_config = pkg_version.load_config(&self.elm_home, &self.elm_version)?;
         Ok(Dependencies::Known(
@@ -275,7 +271,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
                 .versions_cache
                 .cache
                 .get(package)
-                .unwrap_or_else(|| &empty_tree);
+                .unwrap_or(&empty_tree);
             let iter: Box<dyn Iterator<Item = SemVer>> = match self.strategy {
                 VersionStrategy::Oldest => Box::new(versions.iter().cloned()),
                 VersionStrategy::Newest => Box::new(versions.iter().rev().cloned()),
@@ -298,7 +294,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
     ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         let pkg_version = PkgVersion {
             author_pkg: package.clone(),
-            version: version.clone(),
+            version: *version,
         };
         let pkg_config = pkg_version
             .load_config(&self.elm_home, &self.elm_version)

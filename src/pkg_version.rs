@@ -1,6 +1,5 @@
 use pubgrub::version::{SemanticVersion as SemVer, VersionParseError};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -187,6 +186,13 @@ impl Cache {
         let all_pkg_str =
             http_fetch(&url).map_err(|e| CacheError::FetchError { url, source: e })?;
         serde_json::from_str(&all_pkg_str).map_err(|e| e.into())
+    }
+}
+
+// Implement Default for Cache
+impl Default for Cache {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
