@@ -40,7 +40,7 @@ pub struct AppDependencies {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PackageConfig {
-    pub name: String,
+    pub name: Pkg,
     pub summary: String,
     pub license: String,
     pub version: SemVer,
