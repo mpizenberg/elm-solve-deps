@@ -51,7 +51,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use crate::pkg_version::{Cache, Pkg, PkgVersion};
+use crate::pkg_version::{Cache, PkgVersion};
+use crate::project_config::Pkg;
 
 /// Dependency provider of a package or an application elm project.
 /// Will only work properly if used to resolve dependencies for its root.
