@@ -25,7 +25,7 @@ fn main() {
         stats.push(PkgStats {
             id,
             author: pkg_versions[id].author_pkg.author.clone(),
-            pkg: conf.name.clone(),
+            pkg: conf.name.to_string(),
             version: conf.version,
             elm_version: conf.elm_version.0.lowest_version().unwrap(),
             license: conf.license.clone(),
