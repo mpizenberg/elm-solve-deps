@@ -12,7 +12,7 @@ use pubgrub_dependency_provider_elm::dependency_provider::{
     ElmPackageProviderOffline, ElmPackageProviderOnline, ProjectAdapter, VersionStrategy,
 };
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::ProjectConfig;
+use pubgrub_dependency_provider_elm::project_config::{Pkg, ProjectConfig};
 
 const HELP: &str = r#"
 solve_deps
@@ -93,7 +93,7 @@ fn run(pkg_version: Option<PkgVersion>, offline: bool, online_strat: Option<Vers
     };
 }
 
-fn solve_deps<DP: DependencyProvider<String, SemVer>>(
+fn solve_deps<DP: DependencyProvider<Pkg, SemVer>>(
     deps_provider: &DP,
     pkg_version: &Option<PkgVersion>,
 ) -> bool {
@@ -106,8 +106,8 @@ fn solve_deps<DP: DependencyProvider<String, SemVer>>(
             let project: ProjectConfig = serde_json::from_str(&elm_json_str).unwrap();
             match project {
                 ProjectConfig::Application(app_config) => {
-                    let pkg_id = "root".to_string();
-                    let direct_deps: Map<String, Range<SemVer>> = app_config
+                    let pkg_id = Pkg::new("root", "");
+                    let direct_deps: Map<Pkg, Range<SemVer>> = app_config
                         .dependencies
                         .direct
                         .into_iter()
@@ -123,7 +123,7 @@ fn solve_deps<DP: DependencyProvider<String, SemVer>>(
                 }
                 ProjectConfig::Package(pkg_config) => {
                     let pkg_id = pkg_config.name.clone();
-                    let direct_deps: Map<String, Range<SemVer>> = pkg_config
+                    let direct_deps: Map<Pkg, Range<SemVer>> = pkg_config
                         .dependencies
                         .into_iter()
                         .map(|(p, c)| (p, c.0))
@@ -142,14 +142,14 @@ fn solve_deps<DP: DependencyProvider<String, SemVer>>(
         Some(pkg_v) => {
             let author = &pkg_v.author_pkg.author;
             let pkg = &pkg_v.author_pkg.pkg;
-            let pkg_id = format!("{}/{}", author, pkg);
+            let pkg_id = Pkg::new(author, pkg);
             resolve_helper(pkg_id, pkg_v.version, deps_provider)
         }
     }
 }
 
-fn resolve_helper<DP: DependencyProvider<String, SemVer>>(
-    pkg_id: String,
+fn resolve_helper<DP: DependencyProvider<Pkg, SemVer>>(
+    pkg_id: Pkg,
     version: SemVer,
     deps_provider: &DP,
 ) -> bool {
