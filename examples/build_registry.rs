@@ -4,7 +4,7 @@ use serde_json;
 use std::str::FromStr;
 
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::PackageConfig;
+use pubgrub_dependency_provider_elm::project_config::{PackageConfig, Pkg};
 
 /// Read the history of all packages and fetch all their elm.json files.
 fn main() {
@@ -29,25 +29,24 @@ fn main() {
                 .unwrap()
         })
         .collect();
-    let mut dep_provider: OfflineDependencyProvider<String, SemVer> =
-        OfflineDependencyProvider::new();
-    dep_provider.add_dependencies("elm".to_string(), (0, 14, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 14, 1), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 15, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 15, 1), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 16, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 16, 1), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 17, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 17, 1), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 18, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 19, 0), vec![]);
-    dep_provider.add_dependencies("elm".to_string(), (0, 19, 1), vec![]);
+    let mut dep_provider: OfflineDependencyProvider<Pkg, SemVer> = OfflineDependencyProvider::new();
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 14, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 14, 1), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 15, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 15, 1), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 16, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 16, 1), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 17, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 17, 1), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 18, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 19, 0), vec![]);
+    dep_provider.add_dependencies(Pkg::new("elm", ""), (0, 19, 1), vec![]);
     configs.iter().for_each(|config| {
         let deps = config
             .dependencies_iter()
             .map(|(p, r)| (p.clone(), r.clone()))
             .chain(std::iter::once((
-                "elm".to_string(),
+                Pkg::new("elm", ""),
                 config.elm_version.0.clone(),
             )));
         dep_provider.add_dependencies(config.name.clone(), config.version.clone(), deps);
