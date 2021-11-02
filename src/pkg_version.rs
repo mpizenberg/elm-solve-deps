@@ -114,7 +114,14 @@ impl Cache {
         //     Self::file_path(&elm_home).display()
         // );
         let s = serde_json::to_string(self)?;
-        std::fs::write(Self::file_path(elm_home), &s).map_err(|e| e.into())
+        let file_path = Self::file_path(elm_home);
+        std::fs::create_dir_all(file_path.parent().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("{}", file_path.display()),
+            )
+        })?)?;
+        std::fs::write(file_path, &s).map_err(|e| e.into())
     }
 
     /// Path the to file used to store a cache of all existing versions.

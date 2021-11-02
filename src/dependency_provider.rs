@@ -139,22 +139,10 @@ impl ElmPackageProviderOffline {
             versions_cache: RefCell::new(Cache::new()),
         }
     }
-}
-
-impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
-    /// We can only pick versions existing on the file system.
-    /// In addition, we only want to query the file system once per package needed.
-    /// So, the first time we want the list of versions for a given package,
-    /// we walk the cache of installed versions in ~/.elm/0.19.1/packages/author/package/
-    /// and register in an OfflineDependencyProvider those packages.
-    /// Then we can call offlineProvider.choose_package_version(...).
-    ///
-    /// TODO: Improve by only reading the existing versions
-    /// and only deserialize a version elm.json later in get_dependencies.
-    fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
+    fn load_installed_versions<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
-    ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
+    ) -> Result<Vec<(T, U)>, Box<dyn Error>> {
         let mut initial_potential_packages = Vec::new();
         for (pkg, range) in potential_packages {
             // If we've already looked for versions of that package
@@ -171,6 +159,25 @@ impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
             cache.cache.insert(pkg.borrow().clone(), versions);
             initial_potential_packages.push((pkg, range));
         }
+        Ok(initial_potential_packages)
+    }
+}
+
+impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
+    /// We can only pick versions existing on the file system.
+    /// In addition, we only want to query the file system once per package needed.
+    /// So, the first time we want the list of versions for a given package,
+    /// we walk the cache of installed versions in ~/.elm/0.19.1/packages/author/package/
+    /// and register in an OfflineDependencyProvider those packages.
+    /// Then we can call offlineProvider.choose_package_version(...).
+    ///
+    /// TODO: Improve by only reading the existing versions
+    /// and only deserialize a version elm.json later in get_dependencies.
+    fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
+        &self,
+        potential_packages: impl Iterator<Item = (T, U)>,
+    ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
+        let initial_potential_packages = self.load_installed_versions(potential_packages)?;
         // Use the helper function from pubgrub to choose a package.
         let empty_tree = BTreeSet::new();
         let list_available_versions = |package: &Pkg| {
@@ -214,7 +221,8 @@ pub struct ElmPackageProviderOnline<F: Fn(&str) -> Result<String, Box<dyn Error>
     elm_home: PathBuf,
     elm_version: String,
     remote: String,
-    versions_cache: Cache,
+    online_versions_cache: Cache,
+    offline_provider: ElmPackageProviderOffline,
     http_fetch: F,
     strategy: VersionStrategy,
 }
@@ -237,14 +245,18 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
         strategy: VersionStrategy,
     ) -> Result<Self, Box<dyn Error>> {
         let elm_home = elm_home.into();
+        let elm_version = elm_version.to_string();
         let mut versions_cache = Cache::load(&elm_home).unwrap_or_else(|_| Cache::new());
         let remote = remote.to_string();
         versions_cache.update(&remote, &http_fetch)?;
+        let offline_provider =
+            ElmPackageProviderOffline::new(elm_home.clone(), elm_version.clone());
         Ok(ElmPackageProviderOnline {
             elm_home,
-            elm_version: elm_version.to_string(),
+            elm_version,
             remote,
-            versions_cache,
+            online_versions_cache: versions_cache,
+            offline_provider,
             http_fetch,
             strategy,
         })
@@ -252,7 +264,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> ElmPackageProviderOnline<F> 
 
     /// Save the cache of existing versions.
     pub fn save_cache(&self) -> Result<(), crate::pkg_version::CacheError> {
-        self.versions_cache.save(&self.elm_home)
+        self.online_versions_cache.save(&self.elm_home)
     }
 }
 
@@ -265,22 +277,33 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
+        // Update the local cache of already downloaded packages.
+        let initial_potential_packages = self
+            .offline_provider
+            .load_installed_versions(potential_packages)?;
+        // Use the helper function from pubgrub to choose a package.
         let empty_tree = BTreeSet::new();
         let list_available_versions = |package: &Pkg| {
-            let versions = self
-                .versions_cache
+            let local_cache = self.offline_provider.versions_cache.borrow();
+            let local_versions = local_cache.cache.get(package).unwrap_or(&empty_tree);
+            let online_versions = self
+                .online_versions_cache
                 .cache
                 .get(package)
                 .unwrap_or(&empty_tree);
+            // Combine local versions with online versions.
+            let all_versions: Vec<SemVer> =
+                local_versions.union(online_versions).cloned().collect();
             let iter: Box<dyn Iterator<Item = SemVer>> = match self.strategy {
-                VersionStrategy::Oldest => Box::new(versions.iter().cloned()),
-                VersionStrategy::Newest => Box::new(versions.iter().rev().cloned()),
+                VersionStrategy::Oldest => Box::new(all_versions.into_iter()),
+                VersionStrategy::Newest => Box::new(all_versions.into_iter().rev()),
             };
             iter
         };
+
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
             list_available_versions,
-            potential_packages,
+            initial_potential_packages.into_iter(),
         ))
     }
 
