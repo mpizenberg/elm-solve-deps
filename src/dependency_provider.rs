@@ -139,27 +139,25 @@ impl ElmPackageProviderOffline {
             versions_cache: RefCell::new(Cache::new()),
         }
     }
-    fn load_installed_versions<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
+    /// Load existing versions already installed for the potential packages.
+    fn load_installed_versions_of<'a>(
         &self,
-        potential_packages: impl Iterator<Item = (T, U)>,
-    ) -> Result<Vec<(T, U)>, Box<dyn Error>> {
-        let mut initial_potential_packages = Vec::new();
-        for (pkg, range) in potential_packages {
+        packages: impl Iterator<Item = &'a Pkg>,
+    ) -> Result<(), Box<dyn Error>> {
+        for pkg in packages {
             // If we've already looked for versions of that package
             // just skip it and continue with the next one
             let cache = self.versions_cache.borrow();
-            if cache.cache.get(pkg.borrow()).is_some() {
-                initial_potential_packages.push((pkg, range));
+            if cache.cache.contains_key(pkg) {
                 continue;
             }
             drop(cache);
             let versions: BTreeSet<SemVer> =
-                Cache::list_installed_versions(&self.elm_home, &self.elm_version, pkg.borrow())?;
+                Cache::list_installed_versions(&self.elm_home, &self.elm_version, pkg)?;
             let mut cache = self.versions_cache.borrow_mut();
-            cache.cache.insert(pkg.borrow().clone(), versions);
-            initial_potential_packages.push((pkg, range));
+            cache.cache.insert(pkg.clone(), versions);
         }
-        Ok(initial_potential_packages)
+        Ok(())
     }
 }
 
@@ -177,7 +175,8 @@ impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
-        let initial_potential_packages = self.load_installed_versions(potential_packages)?;
+        let potential_packages: Vec<_> = potential_packages.collect();
+        self.load_installed_versions_of(potential_packages.iter().map(|(p, _)| p.borrow()))?;
         // Use the helper function from pubgrub to choose a package.
         let empty_tree = BTreeSet::new();
         let list_available_versions = |package: &Pkg| {
@@ -187,7 +186,7 @@ impl DependencyProvider<Pkg, SemVer> for ElmPackageProviderOffline {
         };
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
             list_available_versions,
-            initial_potential_packages.into_iter(),
+            potential_packages.into_iter(),
         ))
     }
 
@@ -278,9 +277,9 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
         // Update the local cache of already downloaded packages.
-        let initial_potential_packages = self
-            .offline_provider
-            .load_installed_versions(potential_packages)?;
+        let potential_packages: Vec<_> = potential_packages.collect();
+        self.offline_provider
+            .load_installed_versions_of(potential_packages.iter().map(|(p, _)| p.borrow()))?;
         // Use the helper function from pubgrub to choose a package.
         let empty_tree = BTreeSet::new();
         let list_available_versions = |package: &Pkg| {
@@ -303,7 +302,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
 
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
             list_available_versions,
-            initial_potential_packages.into_iter(),
+            potential_packages.into_iter(),
         ))
     }
 
