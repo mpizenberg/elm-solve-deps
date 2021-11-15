@@ -51,7 +51,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use crate::pkg_version::{Cache, PkgVersion};
-use crate::project_config::Pkg;
+use crate::project_config::{Pkg, PkgParseError};
 
 /// Dependency provider of a package or an application elm project.
 /// Will only work properly if used to resolve dependencies for its root.
@@ -143,19 +143,16 @@ impl ElmPackageProviderOffline {
     fn load_installed_versions_of<'a>(
         &self,
         packages: impl Iterator<Item = &'a Pkg>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), PkgParseError> {
         for pkg in packages {
-            // If we've already looked for versions of that package
-            // just skip it and continue with the next one
-            let cache = self.versions_cache.borrow();
-            if cache.cache.contains_key(pkg) {
+            // Only load versions existing in elm home for packages we see for the first time.
+            if self.versions_cache.borrow().cache.contains_key(pkg) {
                 continue;
             }
-            drop(cache);
             let versions: BTreeSet<SemVer> =
                 Cache::list_installed_versions(&self.elm_home, &self.elm_version, pkg)?;
-            let mut cache = self.versions_cache.borrow_mut();
-            cache.cache.insert(pkg.clone(), versions);
+            let cache = &mut self.versions_cache.borrow_mut().cache;
+            cache.insert(pkg.clone(), versions);
         }
         Ok(())
     }
@@ -285,11 +282,8 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemV
         let list_available_versions = |package: &Pkg| {
             let local_cache = self.offline_provider.versions_cache.borrow();
             let local_versions = local_cache.cache.get(package).unwrap_or(&empty_tree);
-            let online_versions = self
-                .online_versions_cache
-                .cache
-                .get(package)
-                .unwrap_or(&empty_tree);
+            let online_cache = &self.online_versions_cache.cache;
+            let online_versions = online_cache.get(package).unwrap_or(&empty_tree);
             // Combine local versions with online versions.
             let all_versions: Vec<SemVer> =
                 local_versions.union(online_versions).cloned().collect();
