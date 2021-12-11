@@ -245,6 +245,14 @@ impl PkgVersion {
         let config = serde_json::from_str(&config_str)?;
         Ok(config)
     }
+
+    /// Get the location of the `elm.json` config for this package version.
+    pub fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
+        self.author_pkg
+            .config_path(elm_home, elm_version)
+            .join(&self.version.to_string())
+            .join("elm.json")
+    }
 }
 
 // Private PkgVersion methods.
@@ -265,13 +273,6 @@ impl PkgVersion {
         self.author_pkg
             .pubgrub_cache_dir_json(elm_home)
             .join(&self.version.to_string())
-    }
-
-    fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
-        self.author_pkg
-            .config_path(elm_home, elm_version)
-            .join(&self.version.to_string())
-            .join("elm.json")
     }
 }
 
