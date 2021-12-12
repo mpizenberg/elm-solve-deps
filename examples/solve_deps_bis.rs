@@ -1,11 +1,13 @@
-use dirs;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{error::Error, process::exit};
+
+use dirs;
 use ureq;
 
+use pubgrub_dependency_provider_elm::constraint::Constraint;
 use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::{AppDependencies, ProjectConfig};
+use pubgrub_dependency_provider_elm::project_config::{AppDependencies, Pkg, ProjectConfig};
 use pubgrub_dependency_provider_elm::solver::{self, VersionStrategy};
 
 const HELP: &str = r#"
@@ -25,40 +27,63 @@ USAGE:
         solve_deps --offline jxxcarlson/elm-tar@4.0.0
         solve_deps --online-newest w0rm/elm-physics@5.1.1
         solve_deps --online-oldest lucamug/style-framework@1.1.0
+        solve_deps --extra "elm/json: 1.1.3 <= v < 2.0.0"
 
 FLAGS:
-    --help                 # Print this message and exit
-    --offline              # No network request, use only installed packages
-    --online-newest        # Use the newest compatible version
-    --online-oldest        # Use the oldest compatible version
+    --help                 Print this message and exit
+    --offline              No network request, use only installed packages
+    --online-newest        Use the newest compatible version
+    --online-oldest        Use the oldest compatible version
+    --extra "author/package: constraint"
+                           Additional package version constraint
+                           Need one --extra per additional constraint
+                           MUST be placed before an eventual package to solve
 "#;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let is_option = |s: &String| s.starts_with("--");
-    let (options, pkg): (Vec<String>, Vec<String>) = args.into_iter().partition(is_option);
+    let is_option = |s: &&str| s.starts_with("--");
+    let (options, positional): (Vec<&str>, Vec<&str>) =
+        args.iter().map(|s| s.as_str()).partition(is_option);
 
     // Check for the --help option
-    if options.contains(&"--help".to_string()) {
+    if options.contains(&"--help") {
         println!("{}", HELP);
         exit(0);
     }
 
-    let offline = options.contains(&"--offline".to_string());
+    // Check for connectivity and strategy
+    let offline = options.contains(&"--offline");
     let mut online_strat = None;
-    if options.contains(&"--online-newest".to_string()) {
+    if options.contains(&"--online-newest") {
         online_strat = Some(VersionStrategy::Newest);
-    } else if options.contains(&"--online-oldest".to_string()) {
+    } else if options.contains(&"--online-oldest") {
         online_strat = Some(VersionStrategy::Oldest);
     }
+
+    // Check for extra additional constraints
+    let extra_count = options.iter().filter(|&o| o == &"--extra").count();
+    let (extras_args, pkg) = positional.split_at(extra_count);
+    let extras: Vec<(Pkg, Constraint)> = extras_args
+        .iter()
+        .map(|s| {
+            let (pkg_str, range_str) = s.split_once(':').unwrap();
+            (
+                Pkg::from_str(pkg_str.trim()).unwrap(),
+                Constraint::from_str(range_str.trim()).unwrap(),
+            )
+        })
+        .collect();
+
     let maybe_pkg_version = pkg.get(0).map(|p| PkgVersion::from_str(p).unwrap());
-    run(maybe_pkg_version, offline, online_strat);
+    run(maybe_pkg_version, offline, online_strat, &extras);
 }
 
 fn run(
     maybe_pkg_version: Option<PkgVersion>,
     offline: bool,
     online_strat: Option<VersionStrategy>,
+    extras: &[(Pkg, Constraint)],
 ) {
     let elm_version = "0.19.1";
 
@@ -93,23 +118,25 @@ fn run(
     let solution: AppDependencies = match (offline, online_strat) {
         (true, _) => {
             eprintln!("Solving offline");
-            offline_solver.solve_deps(&project_elm_json).unwrap()
+            offline_solver
+                .solve_deps(&project_elm_json, extras)
+                .unwrap()
         }
         (false, None) => {
             eprintln!("Trying to solve offline first");
             offline_solver
-                .solve_deps(&project_elm_json)
+                .solve_deps(&project_elm_json, extras)
                 .unwrap_or_else(|_| {
                     eprintln!("Offline solving failed, switching to online");
                     mk_online_solver(offline_solver)
-                        .solve_deps(&project_elm_json)
+                        .solve_deps(&project_elm_json, extras)
                         .unwrap()
                 })
         }
         (false, Some(_)) => {
             eprintln!("Solving online with strategy {:?}", &strat);
             mk_online_solver(offline_solver)
-                .solve_deps(&project_elm_json)
+                .solve_deps(&project_elm_json, extras)
                 .unwrap()
         }
     };

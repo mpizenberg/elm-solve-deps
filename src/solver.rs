@@ -10,6 +10,7 @@ use pubgrub::type_aliases::Map;
 use pubgrub::version::SemanticVersion as SemVer;
 use pubgrub::{range::Range, solver::Dependencies};
 
+use crate::constraint::Constraint;
 use crate::dependency_provider::ProjectAdapter;
 use crate::pkg_version::{Cache, PkgVersion};
 use crate::project_config::{AppDependencies, PackageConfig, Pkg, PkgParseError, ProjectConfig};
@@ -18,6 +19,7 @@ pub fn solve_deps_with<Fetch, L, Versions>(
     project_elm_json: &ProjectConfig,
     fetch_elm_json: Fetch,
     list_available_versions: L,
+    additional_constraints: &[(Pkg, Constraint)],
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
     Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
@@ -31,19 +33,29 @@ where
     match project_elm_json {
         ProjectConfig::Application(app_config) => {
             let normal_deps = app_config.dependencies.direct.iter();
-            let direct_deps: Map<Pkg, Range<SemVer>> = normal_deps
+            let mut direct_deps: Map<Pkg, Range<SemVer>> = normal_deps
                 .chain(app_config.test_dependencies.direct.iter())
                 .map(|(p, v)| (p.clone(), Range::exact(*v)))
                 .collect();
+            // Include the additional constraints.
+            for (p, r) in additional_constraints {
+                let dep_range = direct_deps.entry(p.clone()).or_insert(Range::any());
+                *dep_range = dep_range.intersection(&r.0);
+            }
             // TODO: take somehow into account already picked versions for indirect deps?
             solve_helper(&Pkg::new("root", ""), SemVer::zero(), direct_deps, solver)
         }
         ProjectConfig::Package(pkg_config) => {
             let normal_deps = pkg_config.dependencies.iter();
-            let deps: Map<Pkg, Range<SemVer>> = normal_deps
+            let mut deps: Map<Pkg, Range<SemVer>> = normal_deps
                 .chain(pkg_config.test_dependencies.iter())
                 .map(|(p, c)| (p.clone(), c.0.clone()))
                 .collect();
+            // Include the additional constraints.
+            for (p, r) in additional_constraints {
+                let dep_range = deps.entry(p.clone()).or_insert(Range::any());
+                *dep_range = dep_range.intersection(&r.0);
+            }
             solve_helper(&pkg_config.name, pkg_config.version, deps, solver)
         }
     }
@@ -152,6 +164,7 @@ impl Offline {
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
+        additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
         let list_available_versions =
             |pkg: &Pkg| self.load_installed_versions_of(pkg).unwrap().into_iter();
@@ -164,7 +177,12 @@ impl Offline {
                 .load_config(&self.elm_home, &self.elm_version)
                 .unwrap()
         };
-        solve_deps_with(project_elm_json, fetch_elm_json, list_available_versions)
+        solve_deps_with(
+            project_elm_json,
+            fetch_elm_json,
+            list_available_versions,
+            additional_constraints,
+        )
     }
 
     /// Load existing versions already installed for the potential packages.
@@ -236,10 +254,16 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
+        additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
         let list_available_versions = |pkg: &Pkg| self.list_available_versions(pkg);
         let fetch_elm_json = |pkg: &Pkg, version| self.fetch_elm_json(pkg, version);
-        solve_deps_with(project_elm_json, fetch_elm_json, list_available_versions)
+        solve_deps_with(
+            project_elm_json,
+            fetch_elm_json,
+            list_available_versions,
+            additional_constraints,
+        )
     }
 
     /// Try successively to load the elm.json of this package from
