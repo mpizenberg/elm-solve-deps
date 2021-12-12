@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{error::Error, process::exit};
 
+use anyhow::Context;
 use dirs;
 use ureq;
 
@@ -42,7 +43,7 @@ FLAGS:
                            MUST be placed before an eventual package to solve
 "#;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let is_option = |s: &&str| s.starts_with("--");
     let (options, positional): (Vec<&str>, Vec<&str>) =
@@ -69,19 +70,27 @@ fn main() {
     // Check for extra additional constraints
     let extra_count = options.iter().filter(|&o| o == &"--extra").count();
     let (extras_args, pkg) = positional.split_at(extra_count);
-    let extras: Vec<(Pkg, Constraint)> = extras_args
-        .iter()
-        .map(|s| {
-            let (pkg_str, range_str) = s.split_once(':').unwrap();
-            (
-                Pkg::from_str(pkg_str.trim()).unwrap(),
-                Constraint::from_str(range_str.trim()).unwrap(),
-            )
-        })
-        .collect();
+    let parse_package_constraint = |s: &&str| {
+        let (pkg_str, range_str) = s.split_once(':').ok_or(anyhow::anyhow!(
+            "Did not find the separator ':' in the extra argument {}",
+            s.to_string()
+        ))?;
+        Ok((
+            Pkg::from_str(pkg_str.trim())?,
+            Constraint::from_str(range_str.trim())?,
+        ))
+    };
+    let extras: anyhow::Result<Vec<(Pkg, Constraint)>> =
+        extras_args.iter().map(parse_package_constraint).collect();
 
-    let maybe_pkg_version = pkg.get(0).map(|p| PkgVersion::from_str(p).unwrap());
-    run(maybe_pkg_version, offline, online_strat, use_test, &extras);
+    let maybe_pkg_version = match pkg.get(0) {
+        Some(p_str) => Some(PkgVersion::from_str(p_str).context(format!(
+            "Failed to parse the package to solve: {}",
+            p_str.to_string(),
+        ))?),
+        None => None,
+    };
+    run(maybe_pkg_version, offline, online_strat, use_test, &extras?)
 }
 
 fn run(
@@ -90,7 +99,7 @@ fn run(
     online_strat: Option<VersionStrategy>,
     use_test: bool,
     extras: &[(Pkg, Constraint)],
-) {
+) -> anyhow::Result<()> {
     let elm_version = "0.19.1";
 
     // Load the elm.json of the package given as argument or of the current folder.
@@ -102,13 +111,13 @@ fn run(
                 .or_else(|_| {
                     pkg_version.fetch_config(elm_home(), "https://package.elm-lang.org", http_fetch)
                 })
-                .unwrap();
+                .expect("Failed to load the elm.json config of the package to solve");
             ProjectConfig::Package(pkg_config)
         }
         None => {
             let elm_json_str = std::fs::read_to_string("elm.json")
-                .expect("Are you in an elm project? there was an issue loading the elm.json");
-            serde_json::from_str(&elm_json_str).unwrap()
+                .context("Are you in an elm project? there was an issue loading the elm.json")?;
+            serde_json::from_str(&elm_json_str).context("Failed to decode the elm.json")?
         }
     };
 
@@ -148,7 +157,8 @@ fn run(
     };
 
     // Write solution to stdout.
-    println!("{}", serde_json::to_string_pretty(&solution).unwrap());
+    println!("{}", serde_json::to_string_pretty(&solution)?);
+    Ok(())
 }
 
 // Helper functions ######################################################################
