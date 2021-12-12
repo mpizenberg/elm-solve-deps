@@ -17,9 +17,10 @@ use crate::project_config::{AppDependencies, PackageConfig, Pkg, PkgParseError, 
 
 pub fn solve_deps_with<Fetch, L, Versions>(
     project_elm_json: &ProjectConfig,
+    use_test: bool,
+    additional_constraints: &[(Pkg, Constraint)],
     fetch_elm_json: Fetch,
     list_available_versions: L,
-    additional_constraints: &[(Pkg, Constraint)],
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
     Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
@@ -33,10 +34,18 @@ where
     match project_elm_json {
         ProjectConfig::Application(app_config) => {
             let normal_deps = app_config.dependencies.direct.iter();
-            let mut direct_deps: Map<Pkg, Range<SemVer>> = normal_deps
-                .chain(app_config.test_dependencies.direct.iter())
-                .map(|(p, v)| (p.clone(), Range::exact(*v)))
-                .collect();
+            let test_deps = app_config.test_dependencies.direct.iter();
+            // Merge normal and test dependencies if solving with "use_test".
+            let mut direct_deps: Map<Pkg, Range<SemVer>> = if use_test {
+                normal_deps
+                    .chain(test_deps)
+                    .map(|(p, v)| (p.clone(), Range::exact(*v)))
+                    .collect()
+            } else {
+                normal_deps
+                    .map(|(p, v)| (p.clone(), Range::exact(*v)))
+                    .collect()
+            };
             // Include the additional constraints.
             for (p, r) in additional_constraints {
                 let dep_range = direct_deps.entry(p.clone()).or_insert(Range::any());
@@ -47,10 +56,16 @@ where
         }
         ProjectConfig::Package(pkg_config) => {
             let normal_deps = pkg_config.dependencies.iter();
-            let mut deps: Map<Pkg, Range<SemVer>> = normal_deps
-                .chain(pkg_config.test_dependencies.iter())
-                .map(|(p, c)| (p.clone(), c.0.clone()))
-                .collect();
+            let test_deps = pkg_config.test_dependencies.iter();
+            // Merge normal and test dependencies if solving with "use_test".
+            let mut deps: Map<Pkg, Range<SemVer>> = if use_test {
+                normal_deps
+                    .chain(test_deps)
+                    .map(|(p, c)| (p.clone(), c.0.clone()))
+                    .collect()
+            } else {
+                normal_deps.map(|(p, c)| (p.clone(), c.0.clone())).collect()
+            };
             // Include the additional constraints.
             for (p, r) in additional_constraints {
                 let dep_range = deps.entry(p.clone()).or_insert(Range::any());
@@ -164,6 +179,7 @@ impl Offline {
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
+        use_test: bool,
         additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
         let list_available_versions =
@@ -179,9 +195,10 @@ impl Offline {
         };
         solve_deps_with(
             project_elm_json,
+            use_test,
+            additional_constraints,
             fetch_elm_json,
             list_available_versions,
-            additional_constraints,
         )
     }
 
@@ -254,15 +271,17 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
+        use_test: bool,
         additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
         let list_available_versions = |pkg: &Pkg| self.list_available_versions(pkg);
         let fetch_elm_json = |pkg: &Pkg, version| self.fetch_elm_json(pkg, version);
         solve_deps_with(
             project_elm_json,
+            use_test,
+            additional_constraints,
             fetch_elm_json,
             list_available_versions,
-            additional_constraints,
         )
     }
 

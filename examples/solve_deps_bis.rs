@@ -27,6 +27,7 @@ USAGE:
         solve_deps --offline jxxcarlson/elm-tar@4.0.0
         solve_deps --online-newest w0rm/elm-physics@5.1.1
         solve_deps --online-oldest lucamug/style-framework@1.1.0
+        solve_deps --test
         solve_deps --extra "elm/json: 1.1.3 <= v < 2.0.0"
 
 FLAGS:
@@ -34,6 +35,7 @@ FLAGS:
     --offline              No network request, use only installed packages
     --online-newest        Use the newest compatible version
     --online-oldest        Use the oldest compatible version
+    --test                 Solve with both normal and test dependencies
     --extra "author/package: constraint"
                            Additional package version constraint
                            Need one --extra per additional constraint
@@ -51,6 +53,9 @@ fn main() {
         println!("{}", HELP);
         exit(0);
     }
+
+    // Check if solving with test dependencies
+    let use_test = options.contains(&"--test");
 
     // Check for connectivity and strategy
     let offline = options.contains(&"--offline");
@@ -76,13 +81,14 @@ fn main() {
         .collect();
 
     let maybe_pkg_version = pkg.get(0).map(|p| PkgVersion::from_str(p).unwrap());
-    run(maybe_pkg_version, offline, online_strat, &extras);
+    run(maybe_pkg_version, offline, online_strat, use_test, &extras);
 }
 
 fn run(
     maybe_pkg_version: Option<PkgVersion>,
     offline: bool,
     online_strat: Option<VersionStrategy>,
+    use_test: bool,
     extras: &[(Pkg, Constraint)],
 ) {
     let elm_version = "0.19.1";
@@ -119,24 +125,24 @@ fn run(
         (true, _) => {
             eprintln!("Solving offline");
             offline_solver
-                .solve_deps(&project_elm_json, extras)
+                .solve_deps(&project_elm_json, use_test, extras)
                 .unwrap()
         }
         (false, None) => {
             eprintln!("Trying to solve offline first");
             offline_solver
-                .solve_deps(&project_elm_json, extras)
+                .solve_deps(&project_elm_json, use_test, extras)
                 .unwrap_or_else(|_| {
                     eprintln!("Offline solving failed, switching to online");
                     mk_online_solver(offline_solver)
-                        .solve_deps(&project_elm_json, extras)
+                        .solve_deps(&project_elm_json, use_test, extras)
                         .unwrap()
                 })
         }
         (false, Some(_)) => {
             eprintln!("Solving online with strategy {:?}", &strat);
             mk_online_solver(offline_solver)
-                .solve_deps(&project_elm_json, extras)
+                .solve_deps(&project_elm_json, use_test, extras)
                 .unwrap()
         }
     };
