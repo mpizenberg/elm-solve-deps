@@ -12,7 +12,7 @@ use pubgrub::{range::Range, solver::Dependencies};
 
 use crate::constraint::Constraint;
 use crate::dependency_provider::ProjectAdapter;
-use crate::pkg_version::{Cache, PkgVersion};
+use crate::pkg_version::{Cache, CacheError, PkgVersion, PkgVersionError};
 use crate::project_config::{AppDependencies, PackageConfig, Pkg, PkgParseError, ProjectConfig};
 
 pub fn solve_deps_with<Fetch, L, Versions>(
@@ -23,8 +23,8 @@ pub fn solve_deps_with<Fetch, L, Versions>(
     list_available_versions: L,
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
-    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
-    L: Fn(&Pkg) -> Versions,
+    Fetch: Fn(&Pkg, SemVer) -> Result<PackageConfig, Box<dyn Error>>,
+    L: Fn(&Pkg) -> Result<Versions, Box<dyn Error>>,
     Versions: Iterator<Item = SemVer>,
 {
     let solver = Solver {
@@ -87,8 +87,8 @@ fn solve_helper<Fetch, L, Versions>(
     solver: Solver<Fetch, L, Versions>,
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
-    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
-    L: Fn(&Pkg) -> Versions,
+    Fetch: Fn(&Pkg, SemVer) -> Result<PackageConfig, Box<dyn Error>>,
+    L: Fn(&Pkg) -> Result<Versions, Box<dyn Error>>,
     Versions: Iterator<Item = SemVer>,
 {
     // Transform the generic dependency solver into one that is specific for the current project.
@@ -112,8 +112,8 @@ where
 /// to be able to solve dependencies with pubgrub.
 struct Solver<Fetch, L, Versions>
 where
-    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
-    L: Fn(&Pkg) -> Versions,
+    Fetch: Fn(&Pkg, SemVer) -> Result<PackageConfig, Box<dyn Error>>,
+    L: Fn(&Pkg) -> Result<Versions, Box<dyn Error>>,
     Versions: Iterator<Item = SemVer>,
 {
     fetch_elm_json: Fetch,
@@ -122,8 +122,8 @@ where
 
 impl<Fetch, L, Versions> DependencyProvider<Pkg, SemVer> for Solver<Fetch, L, Versions>
 where
-    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
-    L: Fn(&Pkg) -> Versions,
+    Fetch: Fn(&Pkg, SemVer) -> Result<PackageConfig, Box<dyn Error>>,
+    L: Fn(&Pkg) -> Result<Versions, Box<dyn Error>>,
     Versions: Iterator<Item = SemVer>,
 {
     /// Use `self.list_available_versions` and pick the package with the fewest versions.
@@ -132,8 +132,13 @@ where
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
         let potential_packages: Vec<_> = potential_packages.collect();
+        // TODO: replace by a versions of this that could fail when listing available packages.
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
-            |p| (self.list_available_versions)(p.borrow()).into_iter(),
+            |p| {
+                (self.list_available_versions)(p.borrow())
+                    .unwrap()
+                    .into_iter()
+            },
             potential_packages.into_iter(),
         ))
     }
@@ -145,7 +150,7 @@ where
         version: &SemVer,
     ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
         // TODO: handle the unknown case (change fetch_elm_json signature)
-        let pkg_config = (self.fetch_elm_json)(package, *version);
+        let pkg_config = (self.fetch_elm_json)(package, *version)?;
         Ok(Dependencies::Known(
             pkg_config
                 .dependencies
@@ -182,8 +187,11 @@ impl Offline {
         use_test: bool,
         additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
-        let list_available_versions =
-            |pkg: &Pkg| self.load_installed_versions_of(pkg).unwrap().into_iter();
+        let list_available_versions = |pkg: &Pkg| {
+            self.load_installed_versions_of(pkg)
+                .map(|vs| vs.into_iter())
+                .map_err(|err| err.into())
+        };
         let fetch_elm_json = |pkg: &Pkg, version| {
             let pkg_version = PkgVersion {
                 author_pkg: pkg.clone(),
@@ -191,7 +199,7 @@ impl Offline {
             };
             pkg_version
                 .load_config(&self.elm_home, &self.elm_version)
-                .unwrap()
+                .map_err(|err| err.into())
         };
         solve_deps_with(
             project_elm_json,
@@ -254,7 +262,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
         remote: S,
         http_fetch: F,
         strategy: VersionStrategy,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self, CacheError> {
         let mut online_cache = Cache::load(&offline.elm_home).unwrap_or_else(|_| Cache::new());
         let remote = remote.to_string();
         online_cache.update(&remote, &http_fetch)?;
@@ -274,8 +282,9 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
         use_test: bool,
         additional_constraints: &[(Pkg, Constraint)],
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
-        let list_available_versions = |pkg: &Pkg| self.list_available_versions(pkg);
-        let fetch_elm_json = |pkg: &Pkg, version| self.fetch_elm_json(pkg, version);
+        let list_available_versions = |pkg: &Pkg| Ok(self.list_available_versions(pkg));
+        let fetch_elm_json =
+            |pkg: &Pkg, version| self.fetch_elm_json(pkg, version).map_err(|err| err.into());
         solve_deps_with(
             project_elm_json,
             use_test,
@@ -289,7 +298,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
     ///  - the elm home,
     ///  - the online cache,
     ///  - or directly from the package website.
-    fn fetch_elm_json(&self, pkg: &Pkg, version: SemVer) -> PackageConfig {
+    fn fetch_elm_json(&self, pkg: &Pkg, version: SemVer) -> Result<PackageConfig, PkgVersionError> {
         let pkg_version = PkgVersion {
             author_pkg: pkg.clone(),
             version,
@@ -300,10 +309,9 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
             .or_else(|_| {
                 pkg_version.fetch_config(&self.offline.elm_home, &self.remote, &self.http_fetch)
             })
-            .unwrap()
     }
 
-    /// Combine local versions with online versions.
+    /// Combine local versions with online versions listed on the package server.
     fn list_available_versions(&self, pkg: &Pkg) -> impl Iterator<Item = SemVer> {
         let empty_tree = BTreeSet::new();
         let local_cache = self.offline.versions_cache.borrow();
