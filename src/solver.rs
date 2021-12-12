@@ -15,12 +15,12 @@ use crate::pkg_version::{Cache, PkgVersion};
 use crate::project_config::{AppDependencies, PackageConfig, Pkg, PkgParseError, ProjectConfig};
 
 pub fn solve_deps_with<Fetch, L, Versions>(
-    project_elm_json: &str,
+    project_elm_json: &ProjectConfig,
     fetch_elm_json: Fetch,
     list_available_versions: L,
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
-    Fetch: Fn(&Pkg, SemVer) -> String,
+    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
     L: Fn(&Pkg) -> Versions,
     Versions: Iterator<Item = SemVer>,
 {
@@ -28,8 +28,7 @@ where
         fetch_elm_json,
         list_available_versions,
     };
-    let config: ProjectConfig = serde_json::from_str(project_elm_json).expect("Invalid elm.json");
-    match config {
+    match project_elm_json {
         ProjectConfig::Application(app_config) => {
             let normal_deps = app_config.dependencies.direct.iter();
             let direct_deps: Map<Pkg, Range<SemVer>> = normal_deps
@@ -61,7 +60,7 @@ fn solve_helper<Fetch, L, Versions>(
     solver: Solver<Fetch, L, Versions>,
 ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>>
 where
-    Fetch: Fn(&Pkg, SemVer) -> String,
+    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
     L: Fn(&Pkg) -> Versions,
     Versions: Iterator<Item = SemVer>,
 {
@@ -86,7 +85,7 @@ where
 /// to be able to solve dependencies with pubgrub.
 struct Solver<Fetch, L, Versions>
 where
-    Fetch: Fn(&Pkg, SemVer) -> String,
+    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
     L: Fn(&Pkg) -> Versions,
     Versions: Iterator<Item = SemVer>,
 {
@@ -96,7 +95,7 @@ where
 
 impl<Fetch, L, Versions> DependencyProvider<Pkg, SemVer> for Solver<Fetch, L, Versions>
 where
-    Fetch: Fn(&Pkg, SemVer) -> String,
+    Fetch: Fn(&Pkg, SemVer) -> PackageConfig,
     L: Fn(&Pkg) -> Versions,
     Versions: Iterator<Item = SemVer>,
 {
@@ -118,9 +117,8 @@ where
         package: &Pkg,
         version: &SemVer,
     ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
-        let pkg_config_str = (self.fetch_elm_json)(package, *version);
-        let pkg_config: PackageConfig =
-            serde_json::from_str(&pkg_config_str).expect("Invalid elm.json");
+        // TODO: handle the unknown case (change fetch_elm_json signature)
+        let pkg_config = (self.fetch_elm_json)(package, *version);
         Ok(Dependencies::Known(
             pkg_config
                 .dependencies
@@ -151,13 +149,21 @@ impl Offline {
         }
     }
 
-    pub fn solve_deps<Fetch, L, Versions>(
+    pub fn solve_deps(
         &self,
-        project_elm_json: &str,
+        project_elm_json: &ProjectConfig,
     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
-        let fetch_elm_json = |pkg: &Pkg, ver| self.load_config(pkg, ver).unwrap();
         let list_available_versions =
             |pkg: &Pkg| self.load_installed_versions_of(pkg).unwrap().into_iter();
+        let fetch_elm_json = |pkg: &Pkg, version| {
+            let pkg_version = PkgVersion {
+                author_pkg: pkg.clone(),
+                version,
+            };
+            pkg_version
+                .load_config(&self.elm_home, &self.elm_version)
+                .unwrap()
+        };
         solve_deps_with(project_elm_json, fetch_elm_json, list_available_versions)
     }
 
@@ -168,9 +174,11 @@ impl Offline {
     /// This is to be able to use the dependency provider,
     /// and I think it is OK as long as we don't make this function public?
     fn load_installed_versions_of(&self, pkg: &Pkg) -> Result<Vec<SemVer>, PkgParseError> {
-        match self.versions_cache.borrow().cache.get(pkg) {
+        let versions_cache = self.versions_cache.borrow();
+        match versions_cache.cache.get(pkg) {
             Some(versions) => Ok(versions.iter().rev().cloned().collect()),
             None => {
+                drop(versions_cache);
                 // Only load versions existing in elm home for packages we see for the first time.
                 let versions: BTreeSet<SemVer> =
                     Cache::list_installed_versions(&self.elm_home, &self.elm_version, pkg)?;
@@ -180,16 +188,6 @@ impl Offline {
                 Ok(sorted_versions)
             }
         }
-    }
-
-    /// Load for ELM_HOME the `elm.json` config of a give package.
-    fn load_config(&self, pkg: &Pkg, version: SemVer) -> Result<String, std::io::Error> {
-        let pkg_version = PkgVersion {
-            author_pkg: pkg.clone(),
-            version,
-        };
-        let config_path = pkg_version.config_path(&self.elm_home, &self.elm_version);
-        std::fs::read_to_string(&config_path)
     }
 }
 
@@ -206,7 +204,7 @@ pub struct Online<F: Fn(&str) -> Result<String, Box<dyn Error>>> {
     strategy: VersionStrategy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum VersionStrategy {
     Newest,
     Oldest,
@@ -235,88 +233,45 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
         })
     }
 
-    //     pub fn solve_deps<Fetch, L, Versions>(
-    //         &self,
-    //         project_elm_json: &str,
-    //     ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
-    //         let fetch_elm_json = |pkg: &Pkg, ver| self.load_config(pkg, ver).unwrap();
-    // //         let pkg_version = PkgVersion {
-    // //             author_pkg: package.clone(),
-    // //             version: *version,
-    // //         };
-    // //         let pkg_config = pkg_version
-    // //             .load_config(&self.elm_home, &self.elm_version)
-    // //             .or_else(|_| pkg_version.load_from_cache(&self.elm_home))
-    // //             .or_else(|_| {
-    // //                 pkg_version.fetch_config(&self.elm_home, &self.remote, &self.http_fetch)
-    // //             })?;
-    // //         let deps_iter = pkg_config
-    // //             .dependencies_iter()
-    // //             .map(|(p, r)| (p.clone(), r.clone()));
-    // //         Ok(Dependencies::Known(deps_iter.collect()))
-    //         let list_available_versions =
-    //             |pkg: &Pkg| self.load_installed_versions_of(pkg).unwrap().into_iter();
-    //         solve_deps_with(project_elm_json, fetch_elm_json, list_available_versions)
-    //     }
-}
+    pub fn solve_deps(
+        &self,
+        project_elm_json: &ProjectConfig,
+    ) -> Result<AppDependencies, PubGrubError<Pkg, SemVer>> {
+        let list_available_versions = |pkg: &Pkg| self.list_available_versions(pkg);
+        let fetch_elm_json = |pkg: &Pkg, version| self.fetch_elm_json(pkg, version);
+        solve_deps_with(project_elm_json, fetch_elm_json, list_available_versions)
+    }
 
-// impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> DependencyProvider<Pkg, SemVer>
-//     for ElmPackageProviderOnline<F>
-// {
-//     /// For choose_package_version, we simply use the pubgrub helper function:
-//     /// choose_package_with_fewest_versions
-//     fn choose_package_version<T: Borrow<Pkg>, U: Borrow<Range<SemVer>>>(
-//         &self,
-//         potential_packages: impl Iterator<Item = (T, U)>,
-//     ) -> Result<(T, Option<SemVer>), Box<dyn std::error::Error>> {
-//         // Update the local cache of already downloaded packages.
-//         let potential_packages: Vec<_> = potential_packages.collect();
-//         self.offline_provider
-//             .load_installed_versions_of(potential_packages.iter().map(|(p, _)| p.borrow()))?;
-//         // Use the helper function from pubgrub to choose a package.
-//         let empty_tree = BTreeSet::new();
-//         let list_available_versions = |package: &Pkg| {
-//             let local_cache = self.offline_provider.versions_cache.borrow();
-//             let local_versions = local_cache.cache.get(package).unwrap_or(&empty_tree);
-//             let online_cache = &self.online_versions_cache.cache;
-//             let online_versions = online_cache.get(package).unwrap_or(&empty_tree);
-//             // Combine local versions with online versions.
-//             let all_versions: Vec<SemVer> =
-//                 local_versions.union(online_versions).cloned().collect();
-//             let iter: Box<dyn Iterator<Item = SemVer>> = match self.strategy {
-//                 VersionStrategy::Oldest => Box::new(all_versions.into_iter()),
-//                 VersionStrategy::Newest => Box::new(all_versions.into_iter().rev()),
-//             };
-//             iter
-//         };
-//
-//         Ok(pubgrub::solver::choose_package_with_fewest_versions(
-//             list_available_versions,
-//             potential_packages.into_iter(),
-//         ))
-//     }
-//
-//     /// For get_dependencies, we check if those have been cached already,
-//     /// otherwise we check if the package is installed on the disk and read there,
-//     /// otherwise we ask for dependencies on the network.
-//     fn get_dependencies(
-//         &self,
-//         package: &Pkg,
-//         version: &SemVer,
-//     ) -> Result<Dependencies<Pkg, SemVer>, Box<dyn Error>> {
-//         let pkg_version = PkgVersion {
-//             author_pkg: package.clone(),
-//             version: *version,
-//         };
-//         let pkg_config = pkg_version
-//             .load_config(&self.elm_home, &self.elm_version)
-//             .or_else(|_| pkg_version.load_from_cache(&self.elm_home))
-//             .or_else(|_| {
-//                 pkg_version.fetch_config(&self.elm_home, &self.remote, &self.http_fetch)
-//             })?;
-//         let deps_iter = pkg_config
-//             .dependencies_iter()
-//             .map(|(p, r)| (p.clone(), r.clone()));
-//         Ok(Dependencies::Known(deps_iter.collect()))
-//     }
-// }
+    /// Try successively to load the elm.json of this package from
+    ///  - the elm home,
+    ///  - the online cache,
+    ///  - or directly from the package website.
+    fn fetch_elm_json(&self, pkg: &Pkg, version: SemVer) -> PackageConfig {
+        let pkg_version = PkgVersion {
+            author_pkg: pkg.clone(),
+            version,
+        };
+        pkg_version
+            .load_config(&self.offline.elm_home, &self.offline.elm_version)
+            .or_else(|_| pkg_version.load_from_cache(&self.offline.elm_home))
+            .or_else(|_| {
+                pkg_version.fetch_config(&self.offline.elm_home, &self.remote, &self.http_fetch)
+            })
+            .unwrap()
+    }
+
+    /// Combine local versions with online versions.
+    fn list_available_versions(&self, pkg: &Pkg) -> impl Iterator<Item = SemVer> {
+        let empty_tree = BTreeSet::new();
+        let local_cache = self.offline.versions_cache.borrow();
+        let local_versions = local_cache.cache.get(pkg).unwrap_or(&empty_tree);
+        let online_cache = &self.online_cache.cache;
+        let online_versions = online_cache.get(pkg).unwrap_or(&empty_tree);
+        let all_versions: Vec<SemVer> = local_versions.union(online_versions).cloned().collect();
+        let iter: Box<dyn Iterator<Item = SemVer>> = match self.strategy {
+            VersionStrategy::Oldest => Box::new(all_versions.into_iter()),
+            VersionStrategy::Newest => Box::new(all_versions.into_iter().rev()),
+        };
+        iter
+    }
+}
