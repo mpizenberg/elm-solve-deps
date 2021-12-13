@@ -25,11 +25,11 @@ pub enum CacheError {
     FileIoError(#[from] std::io::Error),
     #[error("failed to parse/convert JSON")]
     JsonError(#[from] serde_json::Error),
-    #[error("failed to fetch {url:?}")]
+    #[error("failed to fetch {url}")]
     FetchError {
         url: String,
         #[source]
-        source: Box<dyn std::error::Error>,
+        source: Box<dyn std::error::Error + Send + Sync>,
     },
     #[error("failed parse package version")]
     PkgVersionFromStrError(#[from] PkgVersionError),
@@ -146,9 +146,15 @@ impl Cache {
                 versions_count.max(1) - 1
             );
             // eprintln!("Request to {}", url);
-            let pkgs_str =
-                http_fetch(&url).map_err(|e| CacheError::FetchError { url, source: e })?;
-            let new_versions_str: Vec<&str> = serde_json::from_str(&pkgs_str)?;
+            let pkgs_str = http_fetch(&url).map_err(|e| CacheError::FetchError {
+                url: url.clone(),
+                source: e,
+            })?;
+            let new_versions_str: Vec<&str> =
+                serde_json::from_str(&pkgs_str).map_err(|_| CacheError::FetchError {
+                    url,
+                    source: format!("Got an unexpected response: {}", pkgs_str).into(),
+                })?;
             if new_versions_str.is_empty() {
                 // Reload from scratch since it means a package was deleted from the registry
                 // and no new package showed up
