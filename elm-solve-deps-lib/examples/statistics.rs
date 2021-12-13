@@ -6,8 +6,8 @@ use serde_json;
 use std::io;
 use std::str::FromStr;
 
-use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::PackageConfig;
+use elm_solve_deps::pkg_version::PkgVersion;
+use elm_solve_deps::project_config::PackageConfig;
 
 /// Read the history of all packages and fetch all their elm.json files.
 fn main() {

@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: MPL-2.0
 
 [package]
-name = "pubgrub-dependency-provider-elm"
+name = "elm-solve-deps"
 version = "0.1.0"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>"]
-edition = "2018"
-description = "Dependency provider for elm packages"
+edition = "2021"
+description = "A dependency solver for the elm ecosystem"
 readme = "README.md"
-repository = "https://github.com/mpizenberg/pubgrub-dependency-provider-elm"
+repository = "https://github.com/mpizenberg/elm-solve-deps"
 license = "MPL-2.0"
-keywords = ["dependency", "pubgrub", "semver", "solver", "version", "elm"]
+keywords = ["dependency", "pubgrub", "solver", "version", "elm"]
 categories = ["algorithms"]
-include = ["Cargo.toml", "LICENSE", "README.md", "src/**", "tests/**", "examples/**"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**", "tests/**"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

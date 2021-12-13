@@ -9,10 +9,10 @@ use pubgrub::report::{DefaultStringReporter, Reporter};
 use pubgrub::version::SemanticVersion as SemVer;
 use ureq;
 
-use pubgrub_dependency_provider_elm::constraint::Constraint;
-use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::{AppDependencies, Pkg, ProjectConfig};
-use pubgrub_dependency_provider_elm::solver::{self, VersionStrategy};
+use elm_solve_deps::constraint::Constraint;
+use elm_solve_deps::pkg_version::PkgVersion;
+use elm_solve_deps::project_config::{AppDependencies, Pkg, ProjectConfig};
+use elm_solve_deps::solver::{self, VersionStrategy};
 
 const HELP: &str = r#"
 solve_deps
