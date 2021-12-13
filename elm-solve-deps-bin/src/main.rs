@@ -15,24 +15,24 @@ use elm_solve_deps::project_config::{AppDependencies, Pkg, ProjectConfig};
 use elm_solve_deps::solver::{self, VersionStrategy};
 
 const HELP: &str = r#"
-solve_deps
+solve-deps-bin
 
 Solve dependencies of an Elm project or published package.
 By default, try in offline mode first
 and switch to online mode if that fails.
 
 USAGE:
-    solve_deps [FLAGS...] [author/package@version]
+    solve-deps-bin [FLAGS...] [author/package@version]
     For example:
-        solve_deps
-        solve_deps --help
-        solve_deps --offline
-        solve_deps ianmackenzie/elm-3d-scene@1.0.1
-        solve_deps --offline jxxcarlson/elm-tar@4.0.0
-        solve_deps --online-newest w0rm/elm-physics@5.1.1
-        solve_deps --online-oldest lucamug/style-framework@1.1.0
-        solve_deps --test
-        solve_deps --extra "elm/json: 1.1.3 <= v < 2.0.0"
+        solve-deps-bin
+        solve-deps-bin --help
+        solve-deps-bin --offline
+        solve-deps-bin ianmackenzie/elm-3d-scene@1.0.1
+        solve-deps-bin --offline jxxcarlson/elm-tar@4.0.0
+        solve-deps-bin --online-newest w0rm/elm-physics@5.1.1
+        solve-deps-bin --online-oldest lucamug/style-framework@1.1.0
+        solve-deps-bin --test
+        solve-deps-bin --extra "elm/json: 1.1.3 <= v < 2.0.0"
 
 FLAGS:
     --help                 Print this message and exit
