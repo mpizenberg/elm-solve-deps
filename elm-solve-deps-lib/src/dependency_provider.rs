@@ -1,44 +1,7 @@
-// # Dependency provider for Elm packages
-//
-// There are two methods to implement for a dependency provider:
-//   1. choose_package_version
-//   2. get_dependencies
-//
-// Those are the only part of the solver potentially doing IO.
-// We want to minimize the amount of network calls and file system read.
-//
-// ## Connectivity modes
-//
-// - offline: use exclusively installed packages.
-// - online: no network restriction to select packages.
-// - progressive (default): try offline first, if it fails switch to prioritized.
-//
-// ## offline
-//
-// For choose_package_version, we can only pick versions existing on the file system.
-// In addition, we only want to query the file system once per package needed.
-// So, the first time we want the list of versions for a given package,
-// we walk the cache of installed versions in ~/.elm/0.19.1/packages/author/package/
-//
-// For get_dependencies, we load the elm.json config of the installed package
-// and extract dependencies from it.
-//
-// ## online
-//
-// At the beginning we make one call to https://package.elm-lang.org/packages/since/...
-// to update our list of existing packages.
-//
-// For choose_package_version, we simply use the pubgrub helper function:
-// choose_package_with_fewest_versions.
-//
-// For get_dependencies, we check if those have been cached already,
-// otherwise we check if the package is installed on the disk and read there,
-// otherwise we ask for dependencies on the network.
-//
-// ## progressive (default)
-//
-// Try to resolve dependencies in offline mode.
-// If it fails, repeat in prioritized mode.
+// SPDX-License-Identifier: MPL-2.0
+
+//! Module with a helper implementation converting a generic dependency
+//! provider into one that is using a project `elm.json` as root.
 
 use pubgrub::range::Range;
 use pubgrub::solver::{Dependencies, DependencyProvider};
@@ -103,6 +66,8 @@ impl<'a, DP: DependencyProvider<Pkg, SemVer>> DependencyProvider<Pkg, SemVer>
             .choose_package_version(std::iter::once((p, r)).chain(potential_packages))
     }
 
+    /// If asking for dependencies of the root package,
+    /// overwrite with the project direct dependencies.
     fn get_dependencies(
         &self,
         package: &Pkg,
