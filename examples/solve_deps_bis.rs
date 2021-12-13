@@ -4,6 +4,9 @@ use std::{error::Error, process::exit};
 
 use anyhow::Context;
 use dirs;
+use pubgrub::error::PubGrubError;
+use pubgrub::report::{DefaultStringReporter, Reporter};
+use pubgrub::version::SemanticVersion as SemVer;
 use ureq;
 
 use pubgrub_dependency_provider_elm::constraint::Constraint;
@@ -128,31 +131,33 @@ fn run(
     let remote = "https://package.elm-lang.org";
     let strat = online_strat.clone().unwrap_or(VersionStrategy::Newest);
     let mk_online_solver =
-        |offline_solver| solver::Online::new(offline_solver, remote, http_fetch, strat).unwrap();
+        |offline_solver| solver::Online::new(offline_solver, remote, http_fetch, strat);
 
     let solution: AppDependencies = match (offline, online_strat) {
         (true, _) => {
             eprintln!("Solving offline");
             offline_solver
                 .solve_deps(&project_elm_json, use_test, extras)
-                .unwrap()
+                .map_err(handle_pubgrub_error)?
         }
         (false, None) => {
             eprintln!("Trying to solve offline first");
             offline_solver
                 .solve_deps(&project_elm_json, use_test, extras)
-                .unwrap_or_else(|_| {
+                .or_else(|_| {
                     eprintln!("Offline solving failed, switching to online");
                     mk_online_solver(offline_solver)
+                        .context("Failed to initialize the online solver")?
                         .solve_deps(&project_elm_json, use_test, extras)
-                        .unwrap()
-                })
+                        .map_err(handle_pubgrub_error)
+                })?
         }
         (false, Some(_)) => {
             eprintln!("Solving online with strategy {:?}", &strat);
             mk_online_solver(offline_solver)
+                .context("Failed to initialize the online solver")?
                 .solve_deps(&project_elm_json, use_test, extras)
-                .unwrap()
+                .map_err(handle_pubgrub_error)?
         }
     };
 
@@ -190,4 +195,46 @@ fn http_fetch(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
         .call()
         .into_string()
         .map_err(|e| e.into())
+}
+
+fn handle_pubgrub_error(err: PubGrubError<Pkg, SemVer>) -> anyhow::Error {
+    match err {
+        PubGrubError::NoSolution(tree) => {
+            anyhow::anyhow!(DefaultStringReporter::report(&tree))
+        }
+        PubGrubError::ErrorRetrievingDependencies {
+            package,
+            version,
+            source,
+        } => anyhow::anyhow!(
+            "An error occured while trying to retrieve dependencies of {}@{}:\n\n{}",
+            package,
+            version,
+            source
+        ),
+        PubGrubError::DependencyOnTheEmptySet {
+            package,
+            version,
+            dependent,
+        } => anyhow::anyhow!(
+            "{}@{} has an imposible dependency on {}",
+            package,
+            version,
+            dependent
+        ),
+        PubGrubError::SelfDependency { package, version } => {
+            anyhow::anyhow!("{}@{} somehow depends on itself", package, version)
+        }
+        PubGrubError::ErrorChoosingPackageVersion(err) => anyhow::anyhow!(
+            "There was an error while picking packages for dependency resolution:\n\n{}",
+            err
+        ),
+        PubGrubError::ErrorInShouldCancel(err) => {
+            anyhow::anyhow!("Dependency resolution was cancelled.\n\n{}", err)
+        }
+        PubGrubError::Failure(err) => anyhow::anyhow!(
+            "An unrecoverable error happened while solving dependencies:\n\n{}",
+            err
+        ),
+    }
 }
