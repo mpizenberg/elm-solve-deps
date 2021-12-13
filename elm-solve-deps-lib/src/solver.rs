@@ -1,3 +1,40 @@
+// SPDX-License-Identifier: MPL-2.0
+
+//! Module providing helper functions to solve dependencies in the elm ecosystem.
+//!
+//! ## Simple offline dependency solver
+//!
+//!
+//! ## Online dependency solver
+//!
+//! We also provide an online solver for convenience.
+//! When initialized, it starts by updating its database of known packages.
+//! Then when solving dependencies, it works similarly than the offline server,
+//! but with a set of packages that is the union of those existing locally,
+//! and those existing on the package server.
+//! Refer to [`solver::Online`] documentation for more info.
+//!
+//! ## Custom dependency solver
+//!
+//! Finally, if you want more control over the process of choosing dependencies,
+//! you can either use the configurable function [`solver::solve_deps_with`],
+//! or go with full customization by writing your own dependency provider
+//! and use directly the pubgrub crate.
+//!
+//! When using [`solver::solve_deps_with`], you are required to provide
+//! two functions, namely `fetch_elm_json` and `list_available_versions`,
+//! implementing the following pseudo trait bounds:
+//!
+//! ```ignore
+//! fetch_elm_json: Fn(&Pkg, SemVer) -> Result<PackageConfig, Error>
+//! list_available_versions: Fn(&Pkg) -> Result<Iterator<SemVer>, Error>
+//! ```
+//!
+//! It is up to you to figure out where to look for those config `elm.json`
+//! and how to provide the list of existing versions.
+//! Remark that the order in the versions iterator returned will correspond
+//! to the prioritization for picking versions.
+//! This means prioritizing newest or oldest versions is just a `.reverse()` on your part.
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -15,6 +52,37 @@ use crate::dependency_provider::ProjectAdapter;
 use crate::pkg_version::{Cache, CacheError, PkgVersion, PkgVersionError};
 use crate::project_config::{AppDependencies, PackageConfig, Pkg, PkgParseError, ProjectConfig};
 
+/// Advanced configurable function to solve dependencies of an elm project.
+///
+/// Set `use_test` to true to include test dependencies in the resolution.
+///
+/// Additional dependencies can be specified for convenience when they are not specified
+/// directly in the project config, as follows.
+///
+/// ```
+/// # use elm_solve_deps::project_config::Pkg;
+/// # use elm_solve_deps::constraint::Constraint;
+/// # use pubgrub::range::Range;
+/// let extra = &[(
+///   Pkg::new("jfmengels", "elm-review"),
+///   Constraint(Range::between( (2,6,1), (3,0,0) )),
+/// )];
+/// ```
+///
+/// You are required to provide two functions,
+/// namely `fetch_elm_json` and `list_available_versions`,
+/// implementing the following pseudo trait bounds:
+///
+/// ```ignore
+/// fetch_elm_json: Fn(&Pkg, SemVer) -> Result<PackageConfig, Error>
+/// list_available_versions: Fn(&Pkg) -> Result<Iterator<SemVer>, Error>
+/// ```
+///
+/// It is up to you to figure out where to look for those config `elm.json`
+/// and how to provide the list of existing versions.
+/// Remark that the order in the versions iterator returned will correspond
+/// to the prioritization for picking versions.
+/// This means prioritizing newest or oldest versions is just a `.reverse()` on your part.
 pub fn solve_deps_with<Fetch, L, Versions>(
     project_elm_json: &ProjectConfig,
     use_test: bool,
@@ -160,6 +228,44 @@ where
 // OFFLINE #####################################################################
 // #############################################################################
 
+/// Dependency solver ready for offline use cases.
+///
+/// The [`Offline`] struct has to be initialized with the path to `ELM_HOME`,
+/// as well as the version of elm used (concretely, this should only be `"0.19.1"` for now).
+/// Then it provides a [`solve_deps`](Offline::solve_deps) function,
+/// which will either succeed and return a solution, or fail with an error.
+///
+/// The offline solver will only ever look for packages inside `ELM_HOME` and thus
+/// should work with other "elm-compatible" ecosystems such as Lamdera.
+/// You can use it as follows.
+///
+/// ```no_run
+/// # use elm_solve_deps::solver;
+/// # let elm_home = || "";
+/// // Define an offline solver.
+/// let offline_solver = solver::Offline::new(elm_home(), "0.19.1");
+///
+/// // Load the project elm.json.
+/// let elm_json_str = std::fs::read_to_string("elm.json")
+///     .expect("Are you in an elm project? there was an issue loading the elm.json");
+/// let project_elm_json = serde_json::from_str(&elm_json_str)
+///     .expect("Failed to decode the elm.json");
+///
+/// // Solve with tests dependencies.
+/// let use_test = true;
+///
+/// // Do not add any extra additional dependency.
+/// let extras = &[];
+///
+/// // Solve dependencies.
+/// let solution = offline_solver
+///     .solve_deps(&project_elm_json, use_test, extras)
+///     .expect("Dependency solving failed");
+/// ```
+///
+/// Note that it is possible to provide additional package constraints,
+/// which is convenient for tooling when requiring additional packages that are not recorded
+/// directly in the original `elm.json` file.
 #[derive(Debug, Clone)]
 pub struct Offline {
     elm_home: PathBuf,
@@ -168,6 +274,11 @@ pub struct Offline {
 }
 
 impl Offline {
+    /// Constructor for the offline solver.
+    ///
+    /// The `elm_home` argument will typically be `/home/user/.elm`.
+    /// The `elm_version` argument should be "0.19.1"
+    /// as it is currently the only version supported.
     pub fn new<PB: Into<PathBuf>, S: ToString>(elm_home: PB, elm_version: S) -> Self {
         Offline {
             elm_home: elm_home.into(),
@@ -176,6 +287,23 @@ impl Offline {
         }
     }
 
+    /// Run the dependency solver on a given project config, obtained from an `elm.json`.
+    ///
+    /// Set `use_test` to `false` to solve the normal dependencies
+    /// or to `true` to also take into account the test dependencies.
+    ///
+    /// Additional dependencies can be specified for convenience when they are not specified
+    /// directly in the project config, as follows.
+    ///
+    /// ```
+    /// # use elm_solve_deps::project_config::Pkg;
+    /// # use elm_solve_deps::constraint::Constraint;
+    /// # use pubgrub::range::Range;
+    /// let extra = &[(
+    ///   Pkg::new("jfmengels", "elm-review"),
+    ///   Constraint(Range::between( (2,6,1), (3,0,0) )),
+    /// )];
+    /// ```
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
@@ -233,6 +361,12 @@ impl Offline {
 // ONLINE ######################################################################
 // #############################################################################
 
+/// Online variant of the dependency solver.
+///
+/// When initialized, it starts by updating its database of known packages.
+/// Then when solving dependencies, it works similarly than the [`Offline`] solver,
+/// but with a set of packages that is the union of those existing locally,
+/// and those existing on the package server.
 #[derive(Debug, Clone)]
 pub struct Online<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> {
     offline: Offline,
@@ -242,16 +376,29 @@ pub struct Online<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> {
     strategy: VersionStrategy,
 }
 
+/// Strategy of an online solver, consisting of picking either the newest
+/// or oldest compatible versions.
 #[derive(Debug, Clone, Copy)]
 pub enum VersionStrategy {
+    /// Choose the newest compatible versions.
     Newest,
+    /// Choose the oldest compatible versions.
     Oldest,
 }
 
 impl<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> Online<F> {
+    /// Constructor for the online solver.
+    ///
     /// At the beginning we make one call to
     /// https://package.elm-lang.org/packages/since/...
     /// to update our list of existing packages.
+    ///
+    /// The address of the remote package server is configurable
+    /// in case you want to use a mirror of the package server.
+    /// Typically, this should be set to `"https://package.elm-lang.org"`.
+    ///
+    /// The caller must also provide the http client to make the get requests.
+    /// One simple option is to use the [`ureq`](https://crates.io/crates/ureq) crate for this.
     pub fn new<S: ToString>(
         offline: Offline,
         remote: S,
@@ -271,6 +418,9 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> Online<F> {
         })
     }
 
+    /// Run the dependency solver on a given project config, obtained from an `elm.json`.
+    ///
+    /// See [`Offline::solve_deps`].
     pub fn solve_deps(
         &self,
         project_elm_json: &ProjectConfig,
