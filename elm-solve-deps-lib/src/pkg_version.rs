@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MPL-2.0
+
+//! Module defining the base type identifying a unique package version.
+//!
+//! It also provides a few helper types and functions to read/write to a cache in `ELM_HOME`
+//! and to fetch packages from a server following the same API than the official elm package server.
+
 use pubgrub::version::{SemanticVersion as SemVer, VersionParseError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -7,55 +14,91 @@ use thiserror::Error;
 
 use crate::project_config::{PackageConfig, Pkg, PkgParseError};
 
+/// A cache to record existing package versions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Cache {
+    /// The cache records ordered sets of versions in a map indexed by packages.
     pub cache: BTreeMap<Pkg, BTreeSet<SemVer>>,
 }
 
+/// Type uniquely identifying a package version.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PkgVersion {
+    /// The package identifier (author + package name).
     pub author_pkg: Pkg,
+    /// The version.
     pub version: SemVer,
 }
 
+/// Type for errors arising when interacting with the local cache on the disk
+/// of package versions.
+///
+/// TODO: merge errors with PkgVersionError since there are duplicates?
 #[derive(Error, Debug)]
 pub enum CacheError {
+    /// Error arising when a failure happens to read or write to the disk.
     #[error("unable to read/write cache")]
     FileIoError(#[from] std::io::Error),
+
+    /// Error arising when a conversion from JSON fails.
     #[error("failed to parse/convert JSON")]
     JsonError(#[from] serde_json::Error),
+
+    /// Error arising when networking with the package server.
     #[error("failed to fetch {url}")]
     FetchError {
+        /// The url corresponding to the failed request.
         url: String,
+        /// The actual network error that happened.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+
+    /// Error arising when parsing a package version string from the cache fails.
     #[error("failed parse package version")]
     PkgVersionFromStrError(#[from] PkgVersionError),
 }
 
+/// Type for errors related to package versions.
+///
+/// TODO: merge errors with CacheError since there are duplicates?
 #[derive(Error, Debug)]
 pub enum PkgVersionError {
+    /// Failed to read or write package versions to the cache.
     #[error("unable to read/write cache")]
     FileIoError(#[from] std::io::Error),
+
+    /// Failure when attempting a conversion from JSON.
     #[error("failed to parse/convert JSON")]
     JsonError(#[from] serde_json::Error),
+
+    /// Error arising when networking with the package server.
     #[error("failed to fetch {url}")]
     FetchError {
+        /// The url corresponding to the failed request.
         url: String,
+        /// The actual network error that happened.
         source: Box<dyn std::error::Error + Sync + Send>,
     },
+
+    /// Failure to parse a package version from string.
     #[error("failed to parse")]
     ParseError(#[from] PkgVersionParseError),
 }
 
+/// Detailed error type for the different kind of parsing error possible.
 #[derive(Error, Debug)]
 pub enum PkgVersionParseError {
+    /// Missing `@` separator between a package and a version.
     #[error("no package@version separation found in `{0}`")]
     NoVersionSeparator(String),
+
+    /// Version is not in the correct format Major.Minor.Patch.
     #[error("failed to parse version in `{0}`")]
     VersionParseError(#[from] VersionParseError),
+
+    /// Failed to parse the package identifier.
     #[error("failed to parse the package")]
     PkgParseError(#[from] PkgParseError),
 }
@@ -68,7 +111,7 @@ impl Cache {
         }
     }
 
-    /// List installed versions in ~/.elm/.
+    /// List installed versions in `ELM_HOME`.
     pub fn list_installed_versions<P: AsRef<Path>>(
         elm_home: P,
         elm_version: &str,
@@ -210,6 +253,7 @@ impl Default for Cache {
 
 // Public PkgVersion methods.
 impl PkgVersion {
+    /// Fetch the `elm.json` config for this package version from the package server.
     pub fn fetch_config<P: AsRef<Path>>(
         &self,
         elm_home: P,
@@ -228,6 +272,7 @@ impl PkgVersion {
         Ok(config)
     }
 
+    /// Load the `elm.json` config for this package version from its installed location.
     pub fn load_config<P: AsRef<Path>>(
         &self,
         elm_home: P,
@@ -240,6 +285,7 @@ impl PkgVersion {
         Ok(config)
     }
 
+    /// Load the `elm.json` config for this package version from the dependency solver cache.
     pub fn load_from_cache<P: AsRef<Path>>(
         &self,
         elm_home: P,
@@ -251,7 +297,7 @@ impl PkgVersion {
         Ok(config)
     }
 
-    /// Get the location of the `elm.json` config for this package version.
+    /// Get the installed location of the `elm.json` config for this package version.
     pub fn config_path<P: AsRef<Path>>(&self, elm_home: P, elm_version: &str) -> PathBuf {
         self.author_pkg
             .config_path(elm_home, elm_version)
