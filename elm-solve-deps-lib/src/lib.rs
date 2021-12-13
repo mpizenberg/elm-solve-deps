@@ -106,7 +106,7 @@
 //!     .expect("Dependency solving failed");
 //! ```
 //!
-//! Note that is is possible to provide additional package constraints,
+//! Note that it is possible to provide additional package constraints,
 //! which is convenient for tooling when requiring additional packages that are not recorded
 //! directly in the original `elm.json` file.
 //!
@@ -114,7 +114,7 @@
 //!
 //! We also provide an online solver for convenience.
 //! When initialized, it starts by updating its database of known packages.
-//! Then when solving dependencies, it works similarly than the offline server,
+//! Then when solving dependencies, it works similarly than the offline solver,
 //! but with a set of packages that is the union of those existing locally,
 //! and those existing on the package server.
 //! Refer to [`solver::Online`] documentation for more info.
