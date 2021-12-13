@@ -239,7 +239,7 @@ impl Offline {
 // #############################################################################
 
 #[derive(Debug, Clone)]
-pub struct Online<F: Fn(&str) -> Result<String, Box<dyn Error>>> {
+pub struct Online<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> {
     offline: Offline,
     online_cache: Cache,
     remote: String,
@@ -253,7 +253,7 @@ pub enum VersionStrategy {
     Oldest,
 }
 
-impl<F: Fn(&str) -> Result<String, Box<dyn Error>>> Online<F> {
+impl<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> Online<F> {
     /// At the beginning we make one call to
     /// https://package.elm-lang.org/packages/since/...
     /// to update our list of existing packages.
