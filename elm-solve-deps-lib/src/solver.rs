@@ -48,7 +48,7 @@ where
             };
             // Include the additional constraints.
             for (p, r) in additional_constraints {
-                let dep_range = direct_deps.entry(p.clone()).or_insert(Range::any());
+                let dep_range = direct_deps.entry(p.clone()).or_insert_with(Range::any);
                 *dep_range = dep_range.intersection(&r.0);
             }
             // TODO: take somehow into account already picked versions for indirect deps?
@@ -68,7 +68,7 @@ where
             };
             // Include the additional constraints.
             for (p, r) in additional_constraints {
-                let dep_range = deps.entry(p.clone()).or_insert(Range::any());
+                let dep_range = deps.entry(p.clone()).or_insert_with(Range::any);
                 *dep_range = dep_range.intersection(&r.0);
             }
             solve_helper(&pkg_config.name, pkg_config.version, deps, solver)
@@ -131,15 +131,10 @@ where
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
-        let potential_packages: Vec<_> = potential_packages.collect();
         // TODO: replace by a versions of this that could fail when listing available packages.
         Ok(pubgrub::solver::choose_package_with_fewest_versions(
-            |p| {
-                (self.list_available_versions)(p.borrow())
-                    .unwrap()
-                    .into_iter()
-            },
-            potential_packages.into_iter(),
+            |p| (self.list_available_versions)(p.borrow()).unwrap(),
+            potential_packages,
         ))
     }
 

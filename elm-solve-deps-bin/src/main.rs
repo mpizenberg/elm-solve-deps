@@ -3,11 +3,9 @@ use std::str::FromStr;
 use std::{error::Error, process::exit};
 
 use anyhow::Context;
-use dirs;
 use pubgrub::error::PubGrubError;
 use pubgrub::report::{DefaultStringReporter, Reporter};
 use pubgrub::version::SemanticVersion as SemVer;
-use ureq;
 
 use elm_solve_deps::constraint::Constraint;
 use elm_solve_deps::pkg_version::PkgVersion;
@@ -74,10 +72,12 @@ fn main() -> anyhow::Result<()> {
     let extra_count = options.iter().filter(|&o| o == &"--extra").count();
     let (extras_args, pkg) = positional.split_at(extra_count);
     let parse_package_constraint = |s: &&str| {
-        let (pkg_str, range_str) = s.split_once(':').ok_or(anyhow::anyhow!(
-            "Did not find the separator ':' in the extra argument {}",
-            s.to_string()
-        ))?;
+        let (pkg_str, range_str) = s.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!(
+                "Did not find the separator ':' in the extra argument {}",
+                s.to_string()
+            )
+        })?;
         Ok((
             Pkg::from_str(pkg_str.trim())?,
             Constraint::from_str(range_str.trim())?,
@@ -106,7 +106,7 @@ fn run(
     let elm_version = "0.19.1";
 
     // Load the elm.json of the package given as argument or of the current folder.
-    let project_elm_json: ProjectConfig = match maybe_pkg_version.clone() {
+    let project_elm_json: ProjectConfig = match maybe_pkg_version {
         Some(pkg_version) => {
             let pkg_config = pkg_version
                 .load_config(elm_home(), elm_version)
@@ -129,7 +129,7 @@ fn run(
 
     // Define an online solver if needed.
     let remote = "https://package.elm-lang.org";
-    let strat = online_strat.clone().unwrap_or(VersionStrategy::Newest);
+    let strat = online_strat.unwrap_or(VersionStrategy::Newest);
     let mk_online_solver =
         |offline_solver| solver::Online::new(offline_solver, remote, http_fetch, strat);
 
