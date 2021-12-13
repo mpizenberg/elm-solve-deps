@@ -3,8 +3,8 @@ use pubgrub::version::SemanticVersion as SemVer;
 use serde_json;
 use std::str::FromStr;
 
-use pubgrub_dependency_provider_elm::pkg_version::PkgVersion;
-use pubgrub_dependency_provider_elm::project_config::{PackageConfig, Pkg};
+use elm_solve_deps::pkg_version::PkgVersion;
+use elm_solve_deps::project_config::{PackageConfig, Pkg};
 
 /// Read the history of all packages and fetch all their elm.json files.
 fn main() {
