@@ -183,3 +183,31 @@ jobs:
           RUSTFLAGS: -D warnings
         with:
           command: clippy
+
+  check_documentation:
+    name: Check the documentation build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Download cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/
+            target/
+          key: doc-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            doc-${{ matrix.os }}-
+
+      - name: Check documentation
+        working-directory: ./elm-solve-deps-lib
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps
