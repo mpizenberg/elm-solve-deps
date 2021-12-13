@@ -1,9 +1,14 @@
+// SPDX-License-Identifier: MPL-2.0
+
+//! Module helping with serialization and deserialization of version constraints.
+
 use pubgrub::range::Range;
 use pubgrub::version::{SemanticVersion as SemVer, VersionParseError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
 use thiserror::Error;
 
+/// A constraint is a simple newtype for ranges of versions defined in the pubgrub crate.
 #[derive(Debug, Clone)]
 pub struct Constraint(pub Range<SemVer>);
 
