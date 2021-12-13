@@ -41,11 +41,10 @@ pub enum PkgVersionError {
     FileIoError(#[from] std::io::Error),
     #[error("failed to parse/convert JSON")]
     JsonError(#[from] serde_json::Error),
-    #[error("failed to fetch {url:?}")]
+    #[error("failed to fetch {url}")]
     FetchError {
         url: String,
-        #[source]
-        source: Box<dyn std::error::Error>,
+        source: Box<dyn std::error::Error + Sync + Send>,
     },
     #[error("failed to parse")]
     ParseError(#[from] PkgVersionParseError),
@@ -134,7 +133,7 @@ impl Cache {
     pub fn update(
         &mut self,
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error + Send + Sync>>,
     ) -> Result<(), CacheError> {
         if self.cache.is_empty() {
             *self = Self::from_remote_all_pkg(remote_base_url, http_fetch)?;
@@ -186,7 +185,7 @@ impl Cache {
     /// curl -L https://package.elm-lang.org/all-packages | jq .
     fn from_remote_all_pkg(
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error + Send + Sync>>,
     ) -> Result<Self, CacheError> {
         let url = format!("{}/all-packages", remote_base_url);
         // eprintln!("Request to {}", url);
@@ -209,7 +208,7 @@ impl PkgVersion {
         &self,
         elm_home: P,
         remote_base_url: &str,
-        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error>>,
+        http_fetch: impl Fn(&str) -> Result<String, Box<dyn std::error::Error + Sync + Send>>,
     ) -> Result<PackageConfig, PkgVersionError> {
         let remote_url = self.to_url(remote_base_url);
         // eprintln!("Fetching {}", &remote_url);

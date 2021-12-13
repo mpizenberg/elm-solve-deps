@@ -111,7 +111,7 @@ fn run(
                 .or_else(|_| {
                     pkg_version.fetch_config(elm_home(), "https://package.elm-lang.org", http_fetch)
                 })
-                .expect("Failed to load the elm.json config of the package to solve");
+                .context("Failed to load the elm.json config of the package to solve")?;
             ProjectConfig::Package(pkg_config)
         }
         None => {
@@ -184,7 +184,7 @@ fn default_elm_home() -> PathBuf {
         .join("elm")
 }
 
-fn http_fetch(url: &str) -> Result<String, Box<dyn Error>> {
+fn http_fetch(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     ureq::get(url)
         .timeout_connect(10_000)
         .call()
