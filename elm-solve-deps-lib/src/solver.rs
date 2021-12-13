@@ -1,40 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Module providing helper functions to solve dependencies in the elm ecosystem.
-//!
-//! ## Simple offline dependency solver
-//!
-//!
-//! ## Online dependency solver
-//!
-//! We also provide an online solver for convenience.
-//! When initialized, it starts by updating its database of known packages.
-//! Then when solving dependencies, it works similarly than the offline server,
-//! but with a set of packages that is the union of those existing locally,
-//! and those existing on the package server.
-//! Refer to [`solver::Online`] documentation for more info.
-//!
-//! ## Custom dependency solver
-//!
-//! Finally, if you want more control over the process of choosing dependencies,
-//! you can either use the configurable function [`solver::solve_deps_with`],
-//! or go with full customization by writing your own dependency provider
-//! and use directly the pubgrub crate.
-//!
-//! When using [`solver::solve_deps_with`], you are required to provide
-//! two functions, namely `fetch_elm_json` and `list_available_versions`,
-//! implementing the following pseudo trait bounds:
-//!
-//! ```ignore
-//! fetch_elm_json: Fn(&Pkg, SemVer) -> Result<PackageConfig, Error>
-//! list_available_versions: Fn(&Pkg) -> Result<Iterator<SemVer>, Error>
-//! ```
-//!
-//! It is up to you to figure out where to look for those config `elm.json`
-//! and how to provide the list of existing versions.
-//! Remark that the order in the versions iterator returned will correspond
-//! to the prioritization for picking versions.
-//! This means prioritizing newest or oldest versions is just a `.reverse()` on your part.
+
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -390,7 +357,7 @@ impl<F: Fn(&str) -> Result<String, Box<dyn Error + Send + Sync>>> Online<F> {
     /// Constructor for the online solver.
     ///
     /// At the beginning we make one call to
-    /// https://package.elm-lang.org/packages/since/...
+    /// `https://package.elm-lang.org/packages/since/...`
     /// to update our list of existing packages.
     ///
     /// The address of the remote package server is configurable
