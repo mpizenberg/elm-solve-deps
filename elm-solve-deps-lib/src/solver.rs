@@ -166,11 +166,18 @@ where
         &self,
         potential_packages: impl Iterator<Item = (T, U)>,
     ) -> Result<(T, Option<SemVer>), Box<dyn Error>> {
-        // TODO: replace by a versions of this that could fail when listing available packages.
-        Ok(pubgrub::solver::choose_package_with_fewest_versions(
-            |p| (self.list_available_versions)(p.borrow()).unwrap(),
-            potential_packages,
-        ))
+        let count_valid = |(p, range): &(T, U)| match (self.list_available_versions)(p.borrow()) {
+            Ok(versions) => versions
+                .filter(|v| range.borrow().contains(v.borrow()))
+                .count(),
+            Err(_) => 0,
+        };
+        let (pkg, range) = potential_packages
+            .min_by_key(count_valid)
+            .expect("potential_packages gave us an empty iterator");
+        let version = (self.list_available_versions)(pkg.borrow())?
+            .find(|v| range.borrow().contains(v.borrow()));
+        Ok((pkg, version))
     }
 
     /// Load the dependencies from the elm.json retrieved with `self.fetch_elm_json`.
