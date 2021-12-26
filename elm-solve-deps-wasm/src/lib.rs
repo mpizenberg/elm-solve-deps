@@ -111,7 +111,6 @@ pub fn solve_deps(
     ) {
         Ok(solution) => {
             let solution_json = serde_json::to_string(&solution).unwrap();
-            log::info!("solution:\n{}", solution_json);
             Ok(JsValue::from_str(&solution_json))
         }
         Err(err) => Err(utils::report_error(handle_pubgrub_error(err))),
