@@ -20,11 +20,6 @@ extern "C" {
     pub fn log(s: &str);
 }
 
-// #[wasm_bindgen(raw_module = "../worker.mjs")]
-// extern "C" {
-//     fn appLog(level: u32, content: &str);
-// }
-
 // Macro console_log! similar to println!
 macro_rules! console_log {
     ($($t:tt)*) => (crate::utils::log(&format_args!($($t)*).to_string()))
@@ -51,8 +46,7 @@ impl log::Log for WasmLogger {
     }
 
     fn log(&self, record: &Record) {
-        // appLog(level_u32(record.level()), &record.args().to_string());
-        console_log!("level {}: {}", record.level(), record.args());
+        console_log!("{}: {}", record.level(), record.args());
     }
 
     fn flush(&self) {}
@@ -78,6 +72,7 @@ pub fn verbosity_filter(verbosity: u32) -> LevelFilter {
     }
 }
 
+/// Log the error and convert it into a JsValue.
 pub fn report_error<E: Into<anyhow::Error>>(error: E) -> JsValue {
     let error_msg = format!("{:?}", error.into());
     log::error!("{}", &error_msg);

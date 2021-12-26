@@ -21,13 +21,21 @@ use wasm_bindgen::prelude::*;
 
 mod utils;
 
+/// Initialize the panic hook for more meaningful errors in case of panics,
+/// and also initialize the logger for the wasm code.
 #[wasm_bindgen]
 pub fn init() {
     utils::set_panic_hook();
     utils::WasmLogger::init().unwrap();
-    utils::WasmLogger::setup(utils::verbosity_filter(2));
+    utils::WasmLogger::setup(utils::verbosity_filter(2)); // INFO
 }
 
+/// Solve dependencies for the provided `elm.json`.
+///
+/// Include also test dependencies if `use_test` is `true`.
+/// It is possible to add additional constraints.
+/// The caller is responsible to provide implementations to be able to fetch the `elm.json` of
+/// dependencies, as well as to list existing versions (in prefered order) for a given package.
 #[wasm_bindgen]
 pub fn solve_deps(
     project_elm_json_str: &str,
