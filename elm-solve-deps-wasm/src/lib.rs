@@ -21,24 +21,11 @@ use wasm_bindgen::prelude::*;
 
 mod utils;
 
-// #[wasm_bindgen(raw_module = "../../elm-solve-deps-wasm-imports.js")]
-#[wasm_bindgen]
-extern "C" {
-    // fn fetchElmJson(pkg: &str, version: &str) -> String;
-    // #[wasm_bindgen(catch)]
-    // fn listAvailableVersions(pkg: &str) -> Result<Vec<JsValue>, JsValue>;
-    // fn listAvailableVersions(pkg: &str) -> Vec<JsValue>;
-}
-
 #[wasm_bindgen]
 pub fn init() {
     utils::set_panic_hook();
     utils::WasmLogger::init().unwrap();
     utils::WasmLogger::setup(utils::verbosity_filter(2));
-    log::error!("log error");
-    log::warn!("log warn");
-    log::info!("log info");
-    log::debug!("log debug");
 }
 
 #[wasm_bindgen]
@@ -125,35 +112,6 @@ pub fn solve_deps(
 
 // Helper functions ######################################################################
 
-// fn elm_home() -> PathBuf {
-//     match std::env::var_os("ELM_HOME") {
-//         None => default_elm_home(),
-//         Some(os_string) => os_string.into(),
-//     }
-// }
-//
-// #[cfg(target_family = "unix")]
-// fn default_elm_home() -> PathBuf {
-//     dirs::home_dir()
-//         .expect("Unknown home directory")
-//         .join(".elm")
-// }
-//
-// #[cfg(target_family = "windows")]
-// fn default_elm_home() -> PathBuf {
-//     dirs::data_dir()
-//         .expect("Unknown data directory")
-//         .join("elm")
-// }
-//
-// fn http_fetch(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
-//     ureq::get(url)
-//         .timeout_connect(10_000)
-//         .call()
-//         .into_string()
-//         .map_err(|e| e.into())
-// }
-
 fn handle_pubgrub_error(err: PubGrubError<Pkg, SemVer>) -> anyhow::Error {
     match err {
         PubGrubError::NoSolution(tree) => {
@@ -174,7 +132,7 @@ fn handle_pubgrub_error(err: PubGrubError<Pkg, SemVer>) -> anyhow::Error {
             version,
             dependent,
         } => anyhow::anyhow!(
-            "{}@{} has an imposible dependency on {}",
+            "{}@{} has an impossible dependency on {}",
             package,
             version,
             dependent
