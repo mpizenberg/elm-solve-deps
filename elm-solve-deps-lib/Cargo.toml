@@ -2,7 +2,7 @@
 
 [package]
 name = "elm-solve-deps"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>"]
 edition = "2021"
 description = "A dependency solver for the elm ecosystem"
@@ -14,7 +14,6 @@ categories = ["algorithms"]
 include = ["Cargo.toml", "LICENSE", "README.md", "src/**", "tests/**"]
 
 [dependencies]
-# pubgrub = { git = "https://github.com/pubgrub-rs/pubgrub", branch = "dev", features = ["serde"] }
 pubgrub = { version = "0.2", features = ["serde"] }
 thiserror = "1.0.30"
 serde = { version = "1.0.131", features = ["derive"] }

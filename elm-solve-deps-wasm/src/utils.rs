@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
+use log::{LevelFilter, Metadata, Record, SetLoggerError};
 use wasm_bindgen::prelude::*;
 
 pub fn set_panic_hook() {
@@ -50,16 +50,6 @@ impl log::Log for WasmLogger {
     }
 
     fn flush(&self) {}
-}
-
-fn level_u32(level: Level) -> u32 {
-    match level {
-        Level::Error => 0,
-        Level::Warn => 1,
-        Level::Info => 2,
-        Level::Debug => 3,
-        Level::Trace => 4,
-    }
 }
 
 pub fn verbosity_filter(verbosity: u32) -> LevelFilter {
