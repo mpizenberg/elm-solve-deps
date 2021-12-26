@@ -2,7 +2,7 @@
 
 [package]
 name = "elm-solve-deps-bin"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Matthieu Pizenberg <matthieu.pizenberg@gmail.com>"]
 edition = "2021"
 description = "A dependency solver for the elm ecosystem"
@@ -10,13 +10,12 @@ readme = "README.md"
 repository = "https://github.com/mpizenberg/elm-solve-deps"
 license = "MPL-2.0"
 keywords = ["dependency", "pubgrub", "solver", "version", "elm"]
-categories = ["algorithms"]
-include = ["Cargo.toml", "LICENSE", "README.md", "src/**", "tests/**"]
+categories = ["algorithms", "command-line-utilities"]
+include = ["Cargo.toml", "LICENSE", "README.md", "src/**"]
 
 [dependencies]
-elm-solve-deps = { version = "0.1", path = "../elm-solve-deps-lib" }
+elm-solve-deps = { version = "0.1.1", path = "../elm-solve-deps-lib" }
 pubgrub = { version = "0.2", features = ["serde"] }
-serde = { version = "1.0.131", features = ["derive"] }
 serde_json = "1.0.72"
 anyhow = "1.0.51"
 ureq = "1.5.2"
