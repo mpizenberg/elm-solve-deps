@@ -63,6 +63,13 @@ And if we also consider the tests dependencies, we get instead:
 }
 ```
 
+## Install
+
+You can simply download the executable for your system in the [latest release][latest-release] build artifacts.
+Alternatively, if you have Rust and Cargo installed on your machine, you can compile and install this with `cargo install elm-solve-deps-bin`.
+
+[latest-release]: https://github.com/mpizenberg/elm-solve-deps/releases
+
 ## Usage of this `elm-solve-deps` CLI.
 
 Here is the help message (maybe outdated) of the CLI program showing most of its capabilities.
