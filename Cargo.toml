@@ -3,5 +3,4 @@ resolver = "2"
 members = [
   "elm-solve-deps-lib",
   "elm-solve-deps-bin",
-  "elm-solve-deps-wasm",
 ]
